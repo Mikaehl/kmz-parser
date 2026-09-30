@@ -1,0 +1,49 @@
+common:
+  fr: >-
+    Chaque extrémité d'une route est appelée « sites ». Les points intermédiaires
+    sont appelés « manholes ». Une route complète est constituée de spans
+    adjacents reliant les extrémités en passant par les points intermédiaires.
+  en: >-
+    Each route endpoint is called a "site". Intermediate points are called
+    "manholes". A complete route consists of adjacent spans connecting its
+    endpoints and passing through the intermediate points.
+
+distance:
+  fr: >-
+    Retourne toutes les routes candidates, chacune avec son identifiant et sa distance
+    calculee. Ne modifie jamais les distances fournies.
+  en: >-
+    Return every candidate route with its identifier and calculated distance.
+    Never modify the supplied distances.
+
+shorter:
+  fr: >-
+    Selectionne uniquement la route complete la plus courte, constituee d'une suite
+    de cables adjacents passant par les manholes entre A-END et Z-END.
+    En cas d'egalite, choisis la premiere.
+    Retourne les points de départ et arrivé, la distance calculee et l'identifiant de la route.
+  en: >-
+    Select only the shortest complete route made of adjacent cables passing through
+    the manholes between A-END and Z-END. If distances tie, select the first one.
+    Return the start and end points, the calculated distance, and the route identifier.
+
+diverse:
+  fr: >-
+    Selectionne deux routes aussi differentes que possible par leur trace geographique,
+    pas seulement par leur nom ou leur longueur. Si la liste de candidates contient
+    une seule route, retourne-la. Si moins de deux routes sont disponibles, retourne
+    toutes les routes disponibles.
+  en: >-
+    Select two routes that are as geographically different as possible, not merely
+    different in name or length. If the candidate list contains one route, return it.
+    If fewer than two routes exist, return all available routes.
+
+closest:
+  fr: >-
+    Parmi les manholes candidats, sélectionne celui qui est le plus proche de l'adresse
+    fournie. Compare les distances géodésiques calculées localement et retourne un seul
+    route_id. Ne modifie pas les distances et n'invente aucun point.
+  en: >-
+    From the candidate manholes, select the one closest to the supplied address.
+    Compare the locally calculated geodesic distances and return exactly one route_id.
+    Do not change distances or invent points.

@@ -1,0 +1,33 @@
+provider: ollama
+
+network:
+  endpoint_match_km: 0.5
+
+closest:
+  geocoder_url: https://nominatim.openstreetmap.org/search
+  user_agent: KMZRouteParser/1.0
+  timeout_seconds: 15
+  max_distance_km: 10
+
+ollama:
+  base_url: http://localhost:11434
+  model: llama3.1
+  timeout_seconds: 120
+
+openrouter:
+  base_url: https://openrouter.ai/api/v1
+  model: qwen/qwen3.8-27b:free
+  api_key_file: API_KEY_OPENROUTER
+  site_url: ""
+  app_name: KMZ Route Parser
+  timeout_seconds: 120
+  max_retries: 5
+  retry_delay_seconds: 2
+
+application:
+  locale: fr
+  output_directory: output
+  log_directory: logs
+  log_level: INFO
+
+prompts_file: prompts.yaml

@@ -52,6 +52,12 @@ def _retry_delay(error: urllib.error.HTTPError, retry_index: int, base_delay: fl
     return min(max(delay, 0.0), 60.0)
 
 
+def _token_count(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
+
+
 def build_system_prompt(prompt_config: dict[str, Any], mode: str, locale: str) -> str:
     try:
         common_prompt = prompt_config["common"][locale]
@@ -84,6 +90,7 @@ def select_routes(
     retry_delay_seconds: float = 2,
     system_prompt: str | None = None,
     context: dict[str, Any] | None = None,
+    request_metadata: dict[str, Any] | None = None,
 ) -> list[RouteCandidate]:
     if max_retries < 0:
         raise ValueError("max_retries cannot be negative")
@@ -101,6 +108,17 @@ def select_routes(
             "content": json.dumps(user_payload, ensure_ascii=False),
         },
     ]
+    if request_metadata is not None:
+        request_metadata.update(
+            {
+                "prompt": json.dumps(messages, ensure_ascii=False),
+                "provider": provider,
+                "model": model,
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "total_tokens": None,
+            }
+        )
     headers = {"Content-Type": "application/json"}
     if provider == "ollama":
         endpoint = f"{base_url.rstrip('/')}/api/chat"
@@ -135,6 +153,29 @@ def select_routes(
             try:
                 with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
                     api_response = json.loads(response.read().decode("utf-8"))
+                if request_metadata is not None:
+                    request_metadata["model"] = api_response.get("model") or model
+                    if provider == "ollama":
+                        prompt_tokens = _token_count(api_response.get("prompt_eval_count"))
+                        completion_tokens = _token_count(api_response.get("eval_count"))
+                        total_tokens = (
+                            prompt_tokens + completion_tokens
+                            if prompt_tokens is not None and completion_tokens is not None
+                            else None
+                        )
+                    else:
+                        usage = api_response.get("usage")
+                        usage = usage if isinstance(usage, dict) else {}
+                        prompt_tokens = _token_count(usage.get("prompt_tokens"))
+                        completion_tokens = _token_count(usage.get("completion_tokens"))
+                        total_tokens = _token_count(usage.get("total_tokens"))
+                    request_metadata.update(
+                        {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": total_tokens,
+                        }
+                    )
                 break
             except urllib.error.HTTPError as error:
                 if provider != "openrouter" or error.code != 429 or retry_index >= max_retries:

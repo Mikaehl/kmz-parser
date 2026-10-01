@@ -1,9 +1,10 @@
 import io
 import json
+import sqlite3
 import tempfile
 import unittest
 import zipfile
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
 from xml.etree import ElementTree
@@ -47,6 +48,14 @@ class CompareCliTests(unittest.TestCase):
         logger = Mock()
 
         def select_ai_spans(**kwargs: object) -> list[object]:
+            kwargs["request_metadata"].update(
+                {
+                    "prompt": '[{"role":"system","content":"compare prompt"}]',
+                    "prompt_tokens": 14,
+                    "completion_tokens": 6,
+                    "total_tokens": 20,
+                }
+            )
             candidates = kwargs["candidates"]
             by_name = {candidate.route_name: candidate for candidate in candidates}
             return [by_name[name] for name in ai_route_names]
@@ -82,6 +91,21 @@ class CompareCliTests(unittest.TestCase):
         description = root.findtext("{http://www.opengis.net/kml/2.2}Document/{http://www.opengis.net/kml/2.2}description")
         self.assertIn("IA et Dijkstra", description)
         self.assertIn("llama3.1", description)
+        database_path = output_directory.parent / "logs" / "requests.sqlite3"
+        with closing(sqlite3.connect(database_path)) as connection:
+            row = connection.execute(
+                """SELECT mode, status, result_json, prompt, duration_ms,
+                          provider_duration_ms, provider, model, prompt_tokens,
+                          completion_tokens, total_tokens, diversity_span_id, kmz_path
+                   FROM requests"""
+            ).fetchone()
+        self.assertEqual(row[0:2], ("compare", "success"))
+        self.assertIn("Site A", row[2])
+        self.assertEqual(row[3], '[{"role":"system","content":"compare prompt"}]')
+        self.assertGreater(row[4], 0)
+        self.assertGreater(row[5], 0)
+        self.assertEqual(row[6:12], ("ollama", "llama3.1", 14, 6, 20, None))
+        self.assertEqual(Path(row[12]), kmz_files[0].resolve())
 
     def test_different_routes_return_error_without_creating_outputs(self) -> None:
         exit_code, output_directory, logger = self._run_compare(["Cable C", "Cable D"])
@@ -92,6 +116,10 @@ class CompareCliTests(unittest.TestCase):
         self.assertTrue(
             any("Comparaison échouée" in call.args[0] for call in logger.error.call_args_list)
         )
+        with closing(sqlite3.connect(output_directory.parent / "logs" / "requests.sqlite3")) as connection:
+            row = connection.execute("SELECT status, error FROM requests").fetchone()
+        self.assertEqual(row[0], "error")
+        self.assertIn("Comparaison échouée", row[1])
 
 
 if __name__ == "__main__":

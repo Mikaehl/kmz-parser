@@ -55,6 +55,42 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual([route.route_id for route in selected], ["R002"])
 
     @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_ollama_request_metadata_captures_prompt_and_available_tokens(
+        self, mock_urlopen: object
+    ) -> None:
+        mock_urlopen.return_value = io.BytesIO(
+            json.dumps(
+                {
+                    "model": "llama3.1",
+                    "message": {"content": json.dumps({"routes": [{"route_id": "R002"}]})},
+                    "prompt_eval_count": 14,
+                    "eval_count": 6,
+                }
+            ).encode("utf-8")
+        )
+        request_metadata: dict[str, object] = {}
+
+        select_routes(
+            provider="ollama",
+            base_url="http://localhost:11434",
+            model="llama3.1",
+            timeout_seconds=10,
+            mode="shorter",
+            locale="fr",
+            prompt_config=self.prompts,
+            candidates=self.candidates,
+            request_metadata=request_metadata,
+        )
+
+        messages = json.loads(request_metadata["prompt"])
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertEqual(json.loads(messages[1]["content"])["mode"], "shorter")
+        self.assertEqual(request_metadata["model"], "llama3.1")
+        self.assertEqual(request_metadata["prompt_tokens"], 14)
+        self.assertEqual(request_metadata["completion_tokens"], 6)
+        self.assertEqual(request_metadata["total_tokens"], 20)
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
     def test_shorter_mode_rejects_non_shortest_model_choice(self, mock_urlopen: object) -> None:
         mock_urlopen.return_value = self._mock_response("R001")
 
@@ -112,6 +148,7 @@ class OllamaClientTests(unittest.TestCase):
     @patch("includes.ollama_client.urllib.request.urlopen")
     def test_openrouter_uses_authenticated_openai_compatible_request(self, mock_urlopen: object) -> None:
         mock_urlopen.return_value = self._mock_openrouter_response("R002")
+        request_metadata: dict[str, object] = {}
 
         selected = select_routes(
             provider="openrouter",
@@ -125,6 +162,7 @@ class OllamaClientTests(unittest.TestCase):
             api_key="test-key",
             site_url="https://example.test",
             app_name="KMZ Route Parser",
+            request_metadata=request_metadata,
         )
 
         request = mock_urlopen.call_args.args[0]
@@ -137,6 +175,38 @@ class OllamaClientTests(unittest.TestCase):
         self.assertIn("COMMON ROUTE DEFINITION", request_body["messages"][0]["content"])
         self.assertIn("Choisir la plus courte", request_body["messages"][0]["content"])
         self.assertEqual([route.route_id for route in selected], ["R002"])
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_openrouter_request_metadata_captures_available_tokens(self, mock_urlopen: object) -> None:
+        mock_urlopen.return_value = io.BytesIO(
+            json.dumps(
+                {
+                    "model": "openai/gpt-4o-mini",
+                    "usage": {"prompt_tokens": 101, "completion_tokens": 17, "total_tokens": 118},
+                    "choices": [
+                        {"message": {"content": json.dumps({"routes": [{"route_id": "R002"}]})}}
+                    ],
+                }
+            ).encode("utf-8")
+        )
+        request_metadata: dict[str, object] = {}
+
+        select_routes(
+            provider="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            model="openai/gpt-4o-mini",
+            timeout_seconds=10,
+            mode="shorter",
+            locale="fr",
+            prompt_config=self.prompts,
+            candidates=self.candidates,
+            api_key="test-key",
+            request_metadata=request_metadata,
+        )
+
+        self.assertEqual(request_metadata["prompt_tokens"], 101)
+        self.assertEqual(request_metadata["completion_tokens"], 17)
+        self.assertEqual(request_metadata["total_tokens"], 118)
 
     @patch("includes.ollama_client.urllib.request.urlopen")
     def test_http_429_includes_provider_message_and_retry_after(self, mock_urlopen: object) -> None:

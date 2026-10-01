@@ -1,9 +1,10 @@
 import io
 import json
+import sqlite3
 import tempfile
 import unittest
 import zipfile
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
 from xml.etree import ElementTree
@@ -94,6 +95,10 @@ class DiverseSpanCliTests(unittest.TestCase):
             with zipfile.ZipFile(kmz_path) as archive:
                 root = ElementTree.fromstring(archive.read("doc.kml"))
             description = root.findtext("{http://www.opengis.net/kml/2.2}Document/{http://www.opengis.net/kml/2.2}description")
+            with closing(sqlite3.connect(config_path.parent / "logs" / "requests.sqlite3")) as connection:
+                request_row = connection.execute(
+                    "SELECT mode, status, diversity_span_id, kmz_path FROM requests"
+                ).fetchone()
 
         self.assertEqual(exit_code, 0)
         self.assertEqual([result["Route"] for result in results], ["New Cable A", "New Cable B"])
@@ -101,6 +106,8 @@ class DiverseSpanCliTests(unittest.TestCase):
         self.assertIn("Modèle IA : llama3.1", description)
         self.assertIn("référence span 0001", description)
         self.assertIn("spans exclus : old-cable-a-id, old-cable-b-id", description)
+        self.assertEqual(request_row[:3], ("diverse", "success", "0001"))
+        self.assertEqual(Path(request_row[3]), kmz_path.resolve())
         self.assertTrue(
             any(
                 call.args[0] == "Route analysis"

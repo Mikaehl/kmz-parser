@@ -1,7 +1,9 @@
 import argparse
 import json
 import logging
+import sqlite3
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,7 @@ from includes.output_writer import (
     write_results,
     write_route_kmz,
 )
+from includes.request_store import record_request
 from includes.route_planner import (
     RoutePlanningError,
     build_route_from_spans,
@@ -124,6 +127,33 @@ def run(arguments: list[str] | None = None) -> int:
             parser.error(locale["error_mode_required"])
         mode = parsed.mode
 
+    request_started = time.perf_counter()
+    request_record: dict[str, Any] = {
+        "mode": mode,
+        "status": "error",
+        "result": None,
+        "prompt": None,
+        "provider": None,
+        "model": None,
+        "provider_duration_ms": None,
+        "prompt_tokens": None,
+        "completion_tokens": None,
+        "total_tokens": None,
+        "diversity_span_id": parsed.cable or parsed.span or None,
+        "kmz_path": None,
+        "error": None,
+    }
+    request_database_path = parsed.config.resolve().parent / "logs" / "requests.sqlite3"
+    logger: logging.Logger | None = None
+
+    def reject(message: str, exit_code: int) -> int:
+        request_record["error"] = message
+        if logger is not None:
+            logger.error(message)
+        else:
+            logging.error(message)
+        return exit_code
+
     try:
         settings, base_directory = load_settings(parsed.config)
         locale_code = parsed.locale or settings["application"]["locale"]
@@ -131,6 +161,7 @@ def run(arguments: list[str] | None = None) -> int:
         log_level = "DEBUG" if parsed.verbose else settings["application"]["log_level"]
         application = settings["application"]
         log_directory = (base_directory / application["log_directory"]).resolve()
+        request_database_path = log_directory / "requests.sqlite3"
         logger, data_logger = configure_logging(log_directory, log_level)
 
         if not parsed.input_file.is_file():
@@ -152,15 +183,13 @@ def run(arguments: list[str] | None = None) -> int:
         closest_context: dict[str, Any] | None = None
         diversity_details: str | None = None
         if parsed.build and mode not in {"shorter", "djk", "compare", "diverse"}:
-            logger.error(locale["error_build_route_mode"])
-            return 2
+            return reject(locale["error_build_route_mode"], 2)
 
         if mode == "closest":
             named_points = parse_named_points(parsed.input_file)
             manholes = find_manhole_points(named_points, candidates)
             if not manholes:
-                logger.error(locale["error_no_manholes"])
-                return 2
+                return reject(locale["error_no_manholes"], 2)
             closest_settings = settings["closest"]
             address_coordinates = geocode_address(
                 parsed.closest,
@@ -190,11 +219,9 @@ def run(arguments: list[str] | None = None) -> int:
             }
         elif mode in {"shorter", "djk", "compare"}:
             if not parsed.a_end or not parsed.z_end:
-                logger.error(locale["error_shorter_endpoints"])
-                return 2
+                return reject(locale["error_shorter_endpoints"], 2)
             if parsed.cable or parsed.span:
-                logger.error(locale["error_cable_diverse_only"])
-                return 2
+                return reject(locale["error_cable_diverse_only"], 2)
             if mode == "compare":
                 selection_candidates = candidates
             else:
@@ -202,8 +229,7 @@ def run(arguments: list[str] | None = None) -> int:
         elif parsed.mode == "diverse":
             if parsed.span:
                 if parsed.cable or bool(parsed.a_end) != bool(parsed.z_end):
-                    logger.error(locale["error_diverse_parameters"])
-                    return 2
+                    return reject(locale["error_diverse_parameters"], 2)
                 output_directory = (base_directory / application["output_directory"]).resolve()
                 previous_route = load_built_route_reference(parsed.span, output_directory)
                 diversity_details = _format_message(
@@ -231,8 +257,7 @@ def run(arguments: list[str] | None = None) -> int:
                         pass
             elif parsed.cable:
                 if not parsed.a_end or not parsed.z_end:
-                    logger.error(locale["error_diverse_parameters"])
-                    return 2
+                    return reject(locale["error_diverse_parameters"], 2)
                 diversity_details = _format_message(
                     locale,
                     "diversity_cable_details",
@@ -247,17 +272,14 @@ def run(arguments: list[str] | None = None) -> int:
                     )
                 ]
             elif parsed.a_end or parsed.z_end:
-                logger.error(locale["error_diverse_parameters"])
-                return 2
+                return reject(locale["error_diverse_parameters"], 2)
             else:
                 selection_candidates = candidates
             if parsed.build and not (parsed.span or (parsed.a_end and parsed.z_end and parsed.cable)):
-                logger.error(locale["error_diverse_parameters"])
-                return 2
+                return reject(locale["error_diverse_parameters"], 2)
         else:
             if parsed.a_end or parsed.z_end or parsed.cable or parsed.span:
-                logger.error(locale["error_route_parameters"])
-                return 2
+                return reject(locale["error_route_parameters"], 2)
             selection_candidates = candidates
 
         dijkstra_route = (
@@ -273,6 +295,7 @@ def run(arguments: list[str] | None = None) -> int:
         else:
             prompts = load_prompts(settings, base_directory)
             system_prompt = build_system_prompt(prompts, mode, locale_code)
+            request_record["prompt"] = system_prompt
             provider = parsed.provider_alias or parsed.provider or settings["provider"]
             if provider == "or":
                 provider = "openrouter"
@@ -284,41 +307,52 @@ def run(arguments: list[str] | None = None) -> int:
                 api_key = _load_api_key(provider_settings["api_key_file"], base_directory)
             strategy = locale["strategy_ai"]
             model = provider_settings["model"]
-            selected = select_routes(
-                provider=provider,
-                base_url=provider_settings["base_url"],
-                model=provider_settings["model"],
-                timeout_seconds=int(provider_settings["timeout_seconds"]),
-                mode=mode,
-                locale=locale_code,
-                prompt_config=prompts,
-                candidates=selection_candidates,
-                api_key=api_key,
-                site_url=provider_settings.get("site_url", ""),
-                app_name=provider_settings.get("app_name", ""),
-                max_retries=int(provider_settings.get("max_retries", 5)) if provider == "openrouter" else 0,
-                retry_delay_seconds=float(provider_settings.get("retry_delay_seconds", 2)),
-                system_prompt=system_prompt,
-                context=(
-                    {"a_end": parsed.a_end, "z_end": parsed.z_end}
-                    if mode == "compare"
-                    else closest_context
-                ),
-            )
+            request_record["provider"] = provider
+            request_record["model"] = model
+            ai_request_metadata: dict[str, Any] = {}
+            provider_started = time.perf_counter()
+            try:
+                selected = select_routes(
+                    provider=provider,
+                    base_url=provider_settings["base_url"],
+                    model=provider_settings["model"],
+                    timeout_seconds=int(provider_settings["timeout_seconds"]),
+                    mode=mode,
+                    locale=locale_code,
+                    prompt_config=prompts,
+                    candidates=selection_candidates,
+                    api_key=api_key,
+                    site_url=provider_settings.get("site_url", ""),
+                    app_name=provider_settings.get("app_name", ""),
+                    max_retries=int(provider_settings.get("max_retries", 5)) if provider == "openrouter" else 0,
+                    retry_delay_seconds=float(provider_settings.get("retry_delay_seconds", 2)),
+                    system_prompt=system_prompt,
+                    context=(
+                        {"a_end": parsed.a_end, "z_end": parsed.z_end}
+                        if mode == "compare"
+                        else closest_context
+                    ),
+                    request_metadata=ai_request_metadata,
+                )
+            finally:
+                request_record["provider_duration_ms"] = (time.perf_counter() - provider_started) * 1000
+                request_record.update(ai_request_metadata)
         if mode == "compare":
             ai_route = build_route_from_spans(selected, parsed.a_end, parsed.z_end)
             ai_span_keys = [span_id.strip().casefold() for span_id in ai_route.span_ids]
             dijkstra_span_keys = [span_id.strip().casefold() for span_id in dijkstra_route.span_ids]
             if ai_span_keys != dijkstra_span_keys:
-                logger.error(
-                    _format_message(
-                        locale,
-                        "error_compare_mismatch",
-                        ai_route=ai_route.route_name,
-                        dijkstra_route=dijkstra_route.route_name,
-                    )
+                mismatch_message = _format_message(
+                    locale,
+                    "error_compare_mismatch",
+                    ai_route=ai_route.route_name,
+                    dijkstra_route=dijkstra_route.route_name,
                 )
-                return 2
+                request_record["result"] = {
+                    "ai_route": ai_route.to_result_dict(),
+                    "dijkstra_route": dijkstra_route.to_result_dict(),
+                }
+                return reject(mismatch_message, 2)
             selected = [dijkstra_route]
             strategy = locale["strategy_compare"]
         analysis_data = {
@@ -337,8 +371,7 @@ def run(arguments: list[str] | None = None) -> int:
         )
         data_logger.info("Route analysis", extra={"data": analysis_data})
         if mode == "closest" and selected[0].distance_km > settings["closest"]["max_distance_km"]:
-            logger.error(locale["error_too_far"])
-            return 1
+            return reject(locale["error_too_far"], 1)
         output_path = parsed.output or (
             base_directory
             / application["output_directory"]
@@ -371,15 +404,18 @@ def run(arguments: list[str] | None = None) -> int:
             )
             logger.info(_format_message(locale, "log_kmz_written", path=kmz_path))
         result_data = [route.to_result_dict() for route in selected]
+        request_record["result"] = result_data
         data_logger.info("Selected routes", extra={"data": result_data})
         logger.info(_format_message(locale, "log_output_written", path=output_path))
         if mode == "djk":
             _display_results(result_data)
         else:
             _display_prompt_and_results(system_prompt, result_data)
+        request_record["status"] = "success"
         return 0
     except ProviderConfigurationError as error:
         message = _format_message(locale, "error_api_key_missing", path=error)
+        request_record["error"] = message
         if "logger" in locals():
             logger.error(message)
         else:
@@ -387,6 +423,7 @@ def run(arguments: list[str] | None = None) -> int:
         return 1
     except KmlInputError as error:
         message = _format_message(locale, "error_file_invalid", error=error)
+        request_record["error"] = message
         if "logger" in locals():
             logger.error(message)
         else:
@@ -394,6 +431,7 @@ def run(arguments: list[str] | None = None) -> int:
         return 2
     except GeocodingError as error:
         message = _format_message(locale, "error_geocoding", error=error)
+        request_record["error"] = message
         if "logger" in locals():
             logger.error(message)
         else:
@@ -401,12 +439,14 @@ def run(arguments: list[str] | None = None) -> int:
         return 1
     except RoutePlanningError as error:
         message = _format_message(locale, "error_route_planning", error=error)
+        request_record["error"] = message
         if "logger" in locals():
             logger.error(message)
         else:
             logging.error(message)
         return 2
     except FileNotFoundError as error:
+        request_record["error"] = str(error)
         if "logger" in locals():
             logger.error(str(error))
         else:
@@ -414,11 +454,23 @@ def run(arguments: list[str] | None = None) -> int:
         return 2
     except (OSError, ValueError, KeyError, RuntimeError, json.JSONDecodeError) as error:
         message = _format_message(locale, "error_api", error=error) if isinstance(error, RuntimeError) else _format_message(locale, "error_config", error=error)
+        request_record["error"] = message
         if "logger" in locals():
             logger.error(message, exc_info=parsed.verbose)
         else:
             logging.error(message)
         return 1
+    finally:
+        request_record["duration_ms"] = (time.perf_counter() - request_started) * 1000
+        if "kmz_path" in locals() and kmz_path is not None:
+            request_record["kmz_path"] = str(kmz_path.resolve())
+        try:
+            record_request(request_database_path, request_record)
+        except (OSError, sqlite3.Error, TypeError, ValueError) as database_error:
+            if logger is not None:
+                logger.error("Could not write request history to SQLite: %s", database_error)
+            else:
+                logging.error("Could not write request history to SQLite: %s", database_error)
 
 
 def main() -> None:

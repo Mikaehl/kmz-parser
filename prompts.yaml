@@ -27,6 +27,16 @@ shorter:
     the manholes between A-END and Z-END. If distances tie, select the first one.
     Return the start and end points, the calculated distance, and the route identifier.
 
+compare:
+  fr: >-
+    Calcule le plus court itinéraire continu entre A-END et Z-END à partir des spans
+    fournis. Retourne les identifiants route_id dans l'ordre, du départ à l'arrivée.
+    Chaque span doit être utilisé au plus une fois. N'invente aucun identifiant.
+  en: >-
+    Calculate the shortest continuous route between A-END and Z-END using the supplied
+    spans. Return route_id values in order from start to destination. Use each span at
+    most once and do not invent identifiers.
+
 diverse:
   fr: >-
     Selectionne deux routes aussi differentes que possible par leur trace geographique,

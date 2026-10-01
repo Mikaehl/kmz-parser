@@ -83,11 +83,18 @@ def build_route_output_paths(
     return identifier, json_path, kmz_path
 
 
-def write_route_kmz(route: RouteCandidate, output_path: Path, build_identifier: int = 1) -> None:
+def write_route_kmz(
+    route: RouteCandidate,
+    output_path: Path,
+    build_identifier: int = 1,
+    description: str | None = None,
+) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     root = ElementTree.Element(f"{{{KML_NAMESPACE}}}kml")
     document = ElementTree.SubElement(root, f"{{{KML_NAMESPACE}}}Document")
     ElementTree.SubElement(document, f"{{{KML_NAMESPACE}}}name").text = output_path.name
+    if description:
+        ElementTree.SubElement(document, f"{{{KML_NAMESPACE}}}description").text = description
 
     _, route_color = ROUTE_COLORS[(build_identifier - 1) % len(ROUTE_COLORS)]
     site_style = ElementTree.SubElement(document, f"{{{KML_NAMESPACE}}}Style", id="siteStyle")

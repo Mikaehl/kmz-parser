@@ -81,6 +81,53 @@ class ClosestCliTests(unittest.TestCase):
         self.assertFalse(output_path.exists())
         logger.error.assert_called_with("Trop éloigné de l'un des points de raccordement possible.")
 
+    def test_djk_calculates_shortest_route_without_calling_ai(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            kml_path, config_path, output_path = self._create_inputs(Path(temporary_directory), 10)
+            stdout = io.StringIO()
+            logger = Mock()
+            data_logger = Mock()
+            with (
+                patch("includes.cli.configure_logging", return_value=(logger, data_logger)),
+                patch("includes.cli.select_routes") as select_routes,
+                redirect_stdout(stdout),
+            ):
+                exit_code = run(
+                    [
+                        str(kml_path),
+                        "--mode",
+                        "djk",
+                        "--a-end",
+                        "Site A",
+                        "--z-end",
+                        "Site B",
+                        "--config",
+                        str(config_path),
+                        "--output",
+                        str(output_path),
+                    ]
+                )
+
+            result = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(result[0]["Route"], "Cable A -> Cable B")
+        self.assertEqual(result[0]["A-END"], "Site A")
+        self.assertEqual(result[0]["Z-END"], "Site B")
+        select_routes.assert_not_called()
+        logger.info.assert_any_call(
+            "Mode utilisé : Dijkstra ; modèle IA : non utilisé ; diversité : aucune."
+        )
+        self.assertTrue(
+            any(
+                call.args[0] == "Route analysis"
+                and call.kwargs["extra"]["data"]
+                == {"strategy": "Dijkstra", "model": None, "diversity": None}
+                for call in data_logger.info.call_args_list
+            )
+        )
+        self.assertEqual(json.loads(stdout.getvalue())[0]["Route"], "Cable A -> Cable B")
+
 
 if __name__ == "__main__":
     unittest.main()

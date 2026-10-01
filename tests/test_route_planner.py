@@ -130,7 +130,7 @@ class RoutePlannerTests(unittest.TestCase):
             route = find_shortest_route(parse_kml_file(kml_path), "Point A", "Point B")
             output_path = Path(temporary_directory) / build_route_filename(route)
 
-            write_route_kmz(route, output_path)
+            write_route_kmz(route, output_path, description="Mode utilisé : Dijkstra")
 
             self.assertRegex(output_path.name, r"^Point_A_Point_B_\d+m\.kmz$")
             with zipfile.ZipFile(output_path) as archive:
@@ -138,6 +138,10 @@ class RoutePlannerTests(unittest.TestCase):
                 root = ElementTree.fromstring(archive.read("doc.kml"))
 
             self.assertEqual(root.findtext("{http://www.opengis.net/kml/2.2}Document/{http://www.opengis.net/kml/2.2}name"), output_path.name)
+            self.assertEqual(
+                root.findtext("{http://www.opengis.net/kml/2.2}Document/{http://www.opengis.net/kml/2.2}description"),
+                "Mode utilisé : Dijkstra",
+            )
         lines = root.findall(".//{http://www.opengis.net/kml/2.2}LineString")
         self.assertEqual(len(lines), 3)
 

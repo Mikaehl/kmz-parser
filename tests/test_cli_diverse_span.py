@@ -2,9 +2,11 @@ import io
 import json
 import tempfile
 import unittest
+import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
+from xml.etree import ElementTree
 
 import yaml
 
@@ -60,6 +62,7 @@ class DiverseSpanCliTests(unittest.TestCase):
             )
             output_json = root / "result.json"
             logger = Mock()
+            data_logger = Mock()
 
             def select_non_common_routes(**kwargs: object) -> list[object]:
                 candidates = kwargs["candidates"]
@@ -67,7 +70,7 @@ class DiverseSpanCliTests(unittest.TestCase):
                 return candidates
 
             with (
-                patch("includes.cli.configure_logging", return_value=(logger, Mock())),
+                patch("includes.cli.configure_logging", return_value=(logger, data_logger)),
                 patch("includes.cli.select_routes", side_effect=select_non_common_routes),
                 redirect_stdout(io.StringIO()),
             ):
@@ -78,6 +81,7 @@ class DiverseSpanCliTests(unittest.TestCase):
                         "diverse",
                         "--span",
                         "0001",
+                        "--build",
                         "--config",
                         str(config_path),
                         "--output",
@@ -86,9 +90,25 @@ class DiverseSpanCliTests(unittest.TestCase):
                 )
 
             results = json.loads(output_json.read_text(encoding="utf-8"))
+            kmz_path = next(output_directory.glob("*.kmz"))
+            with zipfile.ZipFile(kmz_path) as archive:
+                root = ElementTree.fromstring(archive.read("doc.kml"))
+            description = root.findtext("{http://www.opengis.net/kml/2.2}Document/{http://www.opengis.net/kml/2.2}description")
 
         self.assertEqual(exit_code, 0)
         self.assertEqual([result["Route"] for result in results], ["New Cable A", "New Cable B"])
+        self.assertIn("Mode utilisé : IA", description)
+        self.assertIn("Modèle IA : llama3.1", description)
+        self.assertIn("référence span 0001", description)
+        self.assertIn("spans exclus : old-cable-a-id, old-cable-b-id", description)
+        self.assertTrue(
+            any(
+                call.args[0] == "Route analysis"
+                and call.kwargs["extra"]["data"]["model"] == "llama3.1"
+                and "old-cable-a-id" in call.kwargs["extra"]["data"]["diversity"]
+                for call in data_logger.info.call_args_list
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -130,3 +130,67 @@ def find_shortest_route(
         span_ids=[span.source_id or span.route_id for span in route_spans],
         span_names=[span.route_name for span in route_spans],
     )
+
+
+def build_route_from_spans(
+    spans: list[RouteCandidate],
+    a_end: str,
+    z_end: str,
+) -> RouteCandidate:
+    point_names: dict[str, str] = {}
+    for span in spans:
+        for endpoint in (span.a_end, span.z_end):
+            point_names.setdefault(endpoint.strip().casefold(), endpoint.strip())
+
+    start_key = a_end.strip().casefold()
+    end_key = z_end.strip().casefold()
+    if start_key not in point_names:
+        raise RoutePlanningError(f"A-END point '{a_end}' was not found in the cable spans")
+    if end_key not in point_names:
+        raise RoutePlanningError(f"Z-END point '{z_end}' was not found in the cable spans")
+    if start_key == end_key:
+        raise RoutePlanningError("A-END and Z-END must be different points")
+    if not spans:
+        raise RoutePlanningError("The selected route contains no cable spans")
+
+    path: list[tuple[str, str, RouteCandidate, list[tuple[float, float]]]] = []
+    current = start_key
+    for span in spans:
+        first = span.a_end.strip().casefold()
+        second = span.z_end.strip().casefold()
+        if first == current:
+            destination = second
+            points = span.points
+        elif second == current:
+            destination = first
+            points = list(reversed(span.points))
+        else:
+            raise RoutePlanningError(
+                f"Selected span '{span.route_name}' does not continue the route from '{point_names[current]}'"
+            )
+        if destination == current:
+            raise RoutePlanningError(f"Selected span '{span.route_name}' has identical endpoints")
+        path.append((current, destination, span, points))
+        current = destination
+
+    if current != end_key:
+        raise RoutePlanningError(f"Selected spans do not reach Z-END point '{z_end}'")
+
+    route_points: list[tuple[float, float]] = []
+    route_segments: list[list[tuple[float, float]]] = []
+    for _, _, _, points in path:
+        route_points.extend(points)
+        route_segments.append(points)
+    route_spans = [span for _, _, span, _ in path]
+    return RouteCandidate(
+        route_id="+".join(span.route_id for span in route_spans),
+        route_name=" -> ".join(span.route_name for span in route_spans),
+        a_end=point_names[start_key],
+        z_end=point_names[end_key],
+        distance_km=sum(span.distance_km for span in route_spans),
+        points=route_points,
+        segments=route_segments,
+        source_id="+".join(span.source_id or span.route_id for span in route_spans),
+        span_ids=[span.source_id or span.route_id for span in route_spans],
+        span_names=[span.route_name for span in route_spans],
+    )

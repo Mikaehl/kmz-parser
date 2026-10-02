@@ -29,16 +29,23 @@ def write_results(routes: list[RouteCandidate], output_path: Path) -> None:
         output_file.write("\n")
 
 
-def write_built_route_json(route: RouteCandidate, output_path: Path) -> None:
-    payload = route.to_result_dict()
-    if route.span_ids:
-        payload["Spans"] = [
-            {"id": span_id, "name": span_name}
-            for span_id, span_name in zip(route.span_ids, route.span_names)
-        ]
+def write_built_route_json(
+    route: RouteCandidate,
+    output_path: Path,
+    additional_routes: list[RouteCandidate] | None = None,
+) -> None:
+    payload = []
+    for built_route in [route, *(additional_routes or [])]:
+        route_data = built_route.to_result_dict()
+        if built_route.span_ids:
+            route_data["Spans"] = [
+                {"id": span_id, "name": span_name}
+                for span_id, span_name in zip(built_route.span_ids, built_route.span_names)
+            ]
+        payload.append(route_data)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as output_file:
-        json.dump([payload], output_file, ensure_ascii=False, indent=2)
+        json.dump(payload, output_file, ensure_ascii=False, indent=2)
         output_file.write("\n")
 
 
@@ -88,6 +95,7 @@ def write_route_kmz(
     output_path: Path,
     build_identifier: int = 1,
     description: str | None = None,
+    additional_routes: list[RouteCandidate] | None = None,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     root = ElementTree.Element(f"{{{KML_NAMESPACE}}}kml")
@@ -96,16 +104,21 @@ def write_route_kmz(
     if description:
         ElementTree.SubElement(document, f"{{{KML_NAMESPACE}}}description").text = description
 
-    _, route_color = ROUTE_COLORS[(build_identifier - 1) % len(ROUTE_COLORS)]
     site_style = ElementTree.SubElement(document, f"{{{KML_NAMESPACE}}}Style", id="siteStyle")
     icon_style = ElementTree.SubElement(site_style, f"{{{KML_NAMESPACE}}}IconStyle")
     icon = ElementTree.SubElement(icon_style, f"{{{KML_NAMESPACE}}}Icon")
     ElementTree.SubElement(icon, f"{{{KML_NAMESPACE}}}href").text = SITE_ICON_HREF
 
-    style = ElementTree.SubElement(document, f"{{{KML_NAMESPACE}}}Style", id="routeStyle")
-    line_style = ElementTree.SubElement(style, f"{{{KML_NAMESPACE}}}LineStyle")
-    ElementTree.SubElement(line_style, f"{{{KML_NAMESPACE}}}color").text = route_color
-    ElementTree.SubElement(line_style, f"{{{KML_NAMESPACE}}}width").text = "5"
+    routes_to_write = [route, *(additional_routes or [])]
+    route_style_ids: list[str] = []
+    for route_index in range(len(routes_to_write)):
+        style_id = "routeStyle" if route_index == 0 else f"routeStyle{route_index + 1}"
+        route_style_ids.append(style_id)
+        _, route_color = ROUTE_COLORS[(build_identifier - 1 + route_index) % len(ROUTE_COLORS)]
+        style = ElementTree.SubElement(document, f"{{{KML_NAMESPACE}}}Style", id=style_id)
+        line_style = ElementTree.SubElement(style, f"{{{KML_NAMESPACE}}}LineStyle")
+        ElementTree.SubElement(line_style, f"{{{KML_NAMESPACE}}}color").text = route_color
+        ElementTree.SubElement(line_style, f"{{{KML_NAMESPACE}}}width").text = "5"
 
     sites_folder = ElementTree.SubElement(document, f"{{{KML_NAMESPACE}}}Folder")
     ElementTree.SubElement(sites_folder, f"{{{KML_NAMESPACE}}}name").text = "sites"
@@ -124,18 +137,19 @@ def write_route_kmz(
 
     route_folder = ElementTree.SubElement(document, f"{{{KML_NAMESPACE}}}Folder")
     ElementTree.SubElement(route_folder, f"{{{KML_NAMESPACE}}}name").text = "route"
-    placemark = ElementTree.SubElement(route_folder, f"{{{KML_NAMESPACE}}}Placemark")
-    ElementTree.SubElement(placemark, f"{{{KML_NAMESPACE}}}name").text = route.route_name
-    ElementTree.SubElement(placemark, f"{{{KML_NAMESPACE}}}styleUrl").text = "#routeStyle"
-    geometry = ElementTree.SubElement(placemark, f"{{{KML_NAMESPACE}}}MultiGeometry")
-    segments = route.segments or [route.points]
-    for segment in segments:
-        if len(segment) < 2:
-            continue
-        line_string = ElementTree.SubElement(geometry, f"{{{KML_NAMESPACE}}}LineString")
-        ElementTree.SubElement(line_string, f"{{{KML_NAMESPACE}}}tessellate").text = "1"
-        coordinates = " ".join(f"{longitude:.8f},{latitude:.8f},0" for longitude, latitude in segment)
-        ElementTree.SubElement(line_string, f"{{{KML_NAMESPACE}}}coordinates").text = coordinates
+    for route_to_write, style_id in zip(routes_to_write, route_style_ids):
+        placemark = ElementTree.SubElement(route_folder, f"{{{KML_NAMESPACE}}}Placemark")
+        ElementTree.SubElement(placemark, f"{{{KML_NAMESPACE}}}name").text = route_to_write.route_name
+        ElementTree.SubElement(placemark, f"{{{KML_NAMESPACE}}}styleUrl").text = f"#{style_id}"
+        geometry = ElementTree.SubElement(placemark, f"{{{KML_NAMESPACE}}}MultiGeometry")
+        segments = route_to_write.segments or [route_to_write.points]
+        for segment in segments:
+            if len(segment) < 2:
+                continue
+            line_string = ElementTree.SubElement(geometry, f"{{{KML_NAMESPACE}}}LineString")
+            ElementTree.SubElement(line_string, f"{{{KML_NAMESPACE}}}tessellate").text = "1"
+            coordinates = " ".join(f"{longitude:.8f},{latitude:.8f},0" for longitude, latitude in segment)
+            ElementTree.SubElement(line_string, f"{{{KML_NAMESPACE}}}coordinates").text = coordinates
 
     kml_content = ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
     with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:

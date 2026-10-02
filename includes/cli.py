@@ -23,11 +23,13 @@ from includes.kml_parser import (
 from includes.logging_setup import configure_logging
 from includes.ollama_client import (
     ProviderConfigurationError,
+    build_ring_system_prompt,
     build_consistency_prompt,
     build_system_prompt,
     check_kml_consistency,
     list_ollama_models,
     select_routes,
+    select_ring_routes,
 )
 from includes.output_writer import (
     build_route_output_paths,
@@ -40,12 +42,14 @@ from includes.route_planner import (
     RoutePlanningError,
     build_route_from_spans,
     exclude_reference_spans,
+    exclude_crossing_spans,
     find_shortest_route,
+    route_geometries_cross,
 )
 
 
 PROJECT_DIRECTORY = Path(__file__).resolve().parent.parent
-VALID_MODES = ("distance", "shorter", "djk", "compare", "diverse")
+VALID_MODES = ("distance", "shorter", "djk", "compare", "ring", "diverse")
 
 
 def _format_message(locale: dict[str, str], key: str, **values: Any) -> str:
@@ -471,7 +475,7 @@ def run(arguments: list[str] | None = None) -> int:
 
         closest_context: dict[str, Any] | None = None
         diversity_details: str | None = None
-        if parsed.build and mode not in {"shorter", "djk", "compare", "diverse"}:
+        if parsed.build and mode not in {"shorter", "djk", "compare", "ring", "diverse"}:
             return reject(locale["error_build_route_mode"], 2)
 
         if mode == "closest":
@@ -506,12 +510,12 @@ def run(arguments: list[str] | None = None) -> int:
                 },
                 "distance_unit": "km",
             }
-        elif mode in {"shorter", "djk", "compare"}:
+        elif mode in {"shorter", "djk", "compare", "ring"}:
             if not parsed.a_end or not parsed.z_end:
                 return reject(locale["error_shorter_endpoints"], 2)
             if parsed.cable or parsed.span:
                 return reject(locale["error_cable_diverse_only"], 2)
-            if mode == "compare":
+            if mode in {"compare", "ring"}:
                 selection_candidates = candidates
             else:
                 selection_candidates = [find_shortest_route(candidates, parsed.a_end, parsed.z_end)]
@@ -571,11 +575,9 @@ def run(arguments: list[str] | None = None) -> int:
                 return reject(locale["error_route_parameters"], 2)
             selection_candidates = candidates
 
-        dijkstra_route = (
-            find_shortest_route(candidates, parsed.a_end, parsed.z_end)
-            if mode == "compare"
-            else None
-        )
+        dijkstra_route = None
+        if mode == "compare":
+            dijkstra_route = find_shortest_route(candidates, parsed.a_end, parsed.z_end)
         if mode == "djk":
             selected = selection_candidates
             system_prompt = ""
@@ -583,7 +585,11 @@ def run(arguments: list[str] | None = None) -> int:
             model = None
         else:
             prompts = load_prompts(settings, base_directory)
-            system_prompt = build_system_prompt(prompts, mode, locale_code)
+            system_prompt = (
+                build_ring_system_prompt(prompts, locale_code)
+                if mode == "ring"
+                else build_system_prompt(prompts, mode, locale_code)
+            )
             request_record["prompt"] = system_prompt
             provider = parsed.provider_alias or parsed.provider or settings["provider"]
             if provider == "or":
@@ -601,28 +607,49 @@ def run(arguments: list[str] | None = None) -> int:
             ai_request_metadata: dict[str, Any] = {}
             provider_started = time.perf_counter()
             try:
-                selected = select_routes(
-                    provider=provider,
-                    base_url=provider_settings["base_url"],
-                    model=provider_settings["model"],
-                    timeout_seconds=int(provider_settings["timeout_seconds"]),
-                    mode=mode,
-                    locale=locale_code,
-                    prompt_config=prompts,
-                    candidates=selection_candidates,
-                    api_key=api_key,
-                    site_url=provider_settings.get("site_url", ""),
-                    app_name=provider_settings.get("app_name", ""),
-                    max_retries=int(provider_settings.get("max_retries", 5)) if provider == "openrouter" else 0,
-                    retry_delay_seconds=float(provider_settings.get("retry_delay_seconds", 2)),
-                    system_prompt=system_prompt,
-                    context=(
-                        {"a_end": parsed.a_end, "z_end": parsed.z_end}
-                        if mode == "compare"
-                        else closest_context
-                    ),
-                    request_metadata=ai_request_metadata,
-                )
+                if mode == "ring":
+                    ai_ring_routes = select_ring_routes(
+                        provider=provider,
+                        base_url=provider_settings["base_url"],
+                        model=provider_settings["model"],
+                        timeout_seconds=int(provider_settings["timeout_seconds"]),
+                        locale=locale_code,
+                        prompt_config=prompts,
+                        candidates=candidates,
+                        a_end=parsed.a_end,
+                        z_end=parsed.z_end,
+                        api_key=api_key,
+                        site_url=provider_settings.get("site_url", ""),
+                        app_name=provider_settings.get("app_name", ""),
+                        max_retries=int(provider_settings.get("max_retries", 5)) if provider == "openrouter" else 0,
+                        retry_delay_seconds=float(provider_settings.get("retry_delay_seconds", 2)),
+                        system_prompt=system_prompt,
+                        request_metadata=ai_request_metadata,
+                    )
+                    selected = []
+                else:
+                    selected = select_routes(
+                        provider=provider,
+                        base_url=provider_settings["base_url"],
+                        model=provider_settings["model"],
+                        timeout_seconds=int(provider_settings["timeout_seconds"]),
+                        mode=mode,
+                        locale=locale_code,
+                        prompt_config=prompts,
+                        candidates=selection_candidates,
+                        api_key=api_key,
+                        site_url=provider_settings.get("site_url", ""),
+                        app_name=provider_settings.get("app_name", ""),
+                        max_retries=int(provider_settings.get("max_retries", 5)) if provider == "openrouter" else 0,
+                        retry_delay_seconds=float(provider_settings.get("retry_delay_seconds", 2)),
+                        system_prompt=system_prompt,
+                        context=(
+                            {"a_end": parsed.a_end, "z_end": parsed.z_end}
+                            if mode == "compare"
+                            else closest_context
+                        ),
+                        request_metadata=ai_request_metadata,
+                    )
             finally:
                 request_record["provider_duration_ms"] = (time.perf_counter() - provider_started) * 1000
                 request_record.update(ai_request_metadata)
@@ -644,6 +671,21 @@ def run(arguments: list[str] | None = None) -> int:
                 return reject(mismatch_message, 2)
             selected = [dijkstra_route]
             strategy = locale["strategy_compare"]
+        elif mode == "ring":
+            ring_routes = [
+                build_route_from_spans(route_spans, parsed.a_end, parsed.z_end)
+                for route_spans in ai_ring_routes
+            ]
+            first_span_ids = {span_id.strip().casefold() for span_id in ring_routes[0].span_ids}
+            second_span_ids = {span_id.strip().casefold() for span_id in ring_routes[1].span_ids}
+            if first_span_ids.intersection(second_span_ids):
+                raise RoutePlanningError("AI ring routes share one or more cable spans")
+            if route_geometries_cross(ring_routes[0], ring_routes[1]):
+                raise RoutePlanningError("AI ring routes cross each other")
+            ring_routes[0].route_name = f"Route 1 (IA): {ring_routes[0].route_name}"
+            ring_routes[1].route_name = f"Route 2 (IA): {ring_routes[1].route_name}"
+            selected = ring_routes
+            strategy = locale["strategy_ring"]
         analysis_data = {
             "strategy": strategy,
             "model": model,
@@ -683,13 +725,14 @@ def run(arguments: list[str] | None = None) -> int:
                 (base_directory / application["output_directory"]).resolve(),
             )
             if parsed.build:
-                write_built_route_json(selected[0], build_json_path)
+                write_built_route_json(selected[0], build_json_path, additional_routes=selected[1:])
                 logger.info(_format_message(locale, "log_output_written", path=build_json_path))
             write_route_kmz(
                 selected[0],
                 kmz_path,
                 build_identifier,
                 description="\n".join(description_lines),
+                additional_routes=selected[1:],
             )
             logger.info(_format_message(locale, "log_kmz_written", path=kmz_path))
         result_data = [route.to_result_dict() for route in selected]

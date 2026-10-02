@@ -10,7 +10,12 @@ from unittest.mock import patch
 from includes.cli import _build_parser, _display_prompt_and_results, _load_api_key
 from includes.configuration import load_locale
 from includes.kml_parser import RouteCandidate
-from includes.ollama_client import check_kml_consistency, list_ollama_models, select_routes
+from includes.ollama_client import (
+    check_kml_consistency,
+    list_ollama_models,
+    select_ring_routes,
+    select_routes,
+)
 
 
 class OllamaClientTests(unittest.TestCase):
@@ -24,6 +29,7 @@ class OllamaClientTests(unittest.TestCase):
             "shorter": {"fr": "Choisir la plus courte"},
             "closest": {"fr": "Choisir le manhole le plus proche"},
             "check": {"fr": "Vérifie la cohérence des objets."},
+            "ring": {"fr": "Trouver deux itinéraires."},
         }
 
     def _mock_response(self, route_id: str) -> io.BytesIO:
@@ -417,6 +423,42 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual(request.full_url, "http://localhost:11434/api/tags")
         self.assertEqual(request.get_method(), "GET")
         self.assertEqual(models, ["llama3.1:latest", "qwen2.5:7b"])
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_ring_ai_returns_two_ordered_routes(self, mock_urlopen: object) -> None:
+        mock_urlopen.return_value = io.BytesIO(
+            json.dumps(
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {"routes": [{"route_ids": ["R001", "R002"]}, {"route_ids": ["R003"]}]}
+                        )
+                    }
+                }
+            ).encode("utf-8")
+        )
+        candidates = [
+            RouteCandidate("R001", "Cable 1", "A", "J", 1, [(0, 0), (1, 0)]),
+            RouteCandidate("R002", "Cable 2", "J", "B", 1, [(1, 0), (2, 0)]),
+            RouteCandidate("R003", "Cable 3", "A", "B", 3, [(0, 0), (2, 0)]),
+        ]
+
+        routes = select_ring_routes(
+            provider="ollama",
+            base_url="http://localhost:11434",
+            model="llama3.1",
+            timeout_seconds=10,
+            locale="fr",
+            prompt_config=self.prompts,
+            candidates=candidates,
+            a_end="A",
+            z_end="B",
+        )
+
+        self.assertEqual(
+            [[route.route_id for route in path] for path in routes],
+            [["R001", "R002"], ["R003"]],
+        )
 
     def test_reads_openrouter_api_key_from_config_directory_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

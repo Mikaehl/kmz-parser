@@ -97,6 +97,153 @@ def build_system_prompt(prompt_config: dict[str, Any], mode: str, locale: str) -
     )
 
 
+def build_ring_system_prompt(prompt_config: dict[str, Any], locale: str) -> str:
+    try:
+        instructions = prompt_config["ring"][locale]
+    except (KeyError, TypeError) as error:
+        raise ValueError(f"Missing ring prompt for locale '{locale}'") from error
+    return (
+        f"{instructions}\n"
+        "Return valid JSON only, with this exact shape: "
+        '{"routes":[{"route_ids":["R001","R002"]},{"route_ids":["R003"]}]}. '
+        "Return exactly two routes. Each route is an ordered sequence of route_id values "
+        "from the supplied candidate list. Do not invent IDs."
+    )
+
+
+def select_ring_routes(
+    provider: str,
+    base_url: str,
+    model: str,
+    timeout_seconds: int,
+    locale: str,
+    prompt_config: dict[str, Any],
+    candidates: list[RouteCandidate],
+    a_end: str,
+    z_end: str,
+    api_key: str | None = None,
+    site_url: str = "",
+    app_name: str = "",
+    max_retries: int = 5,
+    retry_delay_seconds: float = 2,
+    system_prompt: str | None = None,
+    request_metadata: dict[str, Any] | None = None,
+) -> list[list[RouteCandidate]]:
+    if max_retries < 0:
+        raise ValueError("max_retries cannot be negative")
+    instructions = system_prompt or build_ring_system_prompt(prompt_config, locale)
+    user_payload = {
+        "mode": "ring",
+        "a_end": a_end,
+        "z_end": z_end,
+        "candidates": [candidate.to_model_dict() for candidate in candidates],
+    }
+    messages = [
+        {"role": "system", "content": instructions},
+        {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+    ]
+    if request_metadata is not None:
+        request_metadata.update(
+            {
+                "prompt": json.dumps(messages, ensure_ascii=False),
+                "provider": provider,
+                "model": model,
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "total_tokens": None,
+            }
+        )
+
+    headers = {"Content-Type": "application/json"}
+    if provider == "ollama":
+        endpoint = f"{base_url.rstrip('/')}/api/chat"
+        request_body = {"model": model, "stream": False, "format": "json", "messages": messages}
+    elif provider == "openrouter":
+        if not api_key:
+            raise ProviderConfigurationError("OpenRouter API key is required")
+        endpoint = f"{base_url.rstrip('/')}/chat/completions"
+        headers["Authorization"] = f"Bearer {api_key}"
+        if site_url:
+            headers["HTTP-Referer"] = site_url
+        if app_name:
+            headers["X-Title"] = app_name
+        request_body = {
+            "model": model,
+            "stream": False,
+            "response_format": {"type": "json_object"},
+            "messages": messages,
+        }
+    else:
+        raise ValueError(f"Unsupported provider: {provider}")
+
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(request_body).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    retry_index = 0
+    try:
+        while True:
+            try:
+                with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                    api_response = json.loads(response.read().decode("utf-8"))
+                if request_metadata is not None:
+                    request_metadata["model"] = api_response.get("model") or model
+                    if provider == "ollama":
+                        prompt_tokens = _token_count(api_response.get("prompt_eval_count"))
+                        completion_tokens = _token_count(api_response.get("eval_count"))
+                        total_tokens = (
+                            prompt_tokens + completion_tokens
+                            if prompt_tokens is not None and completion_tokens is not None
+                            else None
+                        )
+                    else:
+                        usage = api_response.get("usage")
+                        usage = usage if isinstance(usage, dict) else {}
+                        prompt_tokens = _token_count(usage.get("prompt_tokens"))
+                        completion_tokens = _token_count(usage.get("completion_tokens"))
+                        total_tokens = _token_count(usage.get("total_tokens"))
+                    request_metadata.update(
+                        {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": total_tokens,
+                        }
+                    )
+                break
+            except urllib.error.HTTPError as error:
+                if provider != "openrouter" or error.code != 429 or retry_index >= max_retries:
+                    raise RuntimeError(_describe_http_error(error)) from error
+                delay = _retry_delay(error, retry_index, retry_delay_seconds)
+                error.close()
+                time.sleep(delay)
+                retry_index += 1
+        if provider == "ollama":
+            content = api_response["message"]["content"]
+        else:
+            content = api_response["choices"][0]["message"]["content"]
+        result = json.loads(content)
+    except (urllib.error.URLError, TimeoutError, KeyError, IndexError, TypeError, json.JSONDecodeError) as error:
+        raise RuntimeError(str(error)) from error
+
+    routes = result.get("routes") if isinstance(result, dict) else None
+    if not isinstance(routes, list) or len(routes) != 2:
+        raise ValueError("Ring response must contain exactly two routes")
+    candidate_by_id = {candidate.route_id: candidate for candidate in candidates}
+    selected_routes: list[list[RouteCandidate]] = []
+    for route in routes:
+        route_ids = route.get("route_ids") if isinstance(route, dict) else None
+        if not isinstance(route_ids, list) or not route_ids or any(not isinstance(item, str) for item in route_ids):
+            raise ValueError("Each ring route must contain a non-empty route_ids array")
+        if len(set(route_ids)) != len(route_ids):
+            raise ValueError("A ring route cannot use a span more than once")
+        if any(route_id not in candidate_by_id for route_id in route_ids):
+            raise ValueError("AI selected unknown cable span identifiers")
+        selected_routes.append([candidate_by_id[route_id] for route_id in route_ids])
+    return selected_routes
+
+
 def build_consistency_prompt(prompt_config: dict[str, Any], locale: str) -> str:
     try:
         instructions = prompt_config["check"][locale]

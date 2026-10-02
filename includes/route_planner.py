@@ -7,6 +7,104 @@ class RoutePlanningError(ValueError):
     pass
 
 
+def _cross(first: tuple[float, float], second: tuple[float, float]) -> float:
+    return first[0] * second[1] - first[1] * second[0]
+
+
+def _segment_intersection(
+    first_start: tuple[float, float],
+    first_end: tuple[float, float],
+    second_start: tuple[float, float],
+    second_end: tuple[float, float],
+) -> tuple[bool, tuple[float, float] | None]:
+    epsilon = 1e-12
+    first_vector = (first_end[0] - first_start[0], first_end[1] - first_start[1])
+    second_vector = (second_end[0] - second_start[0], second_end[1] - second_start[1])
+    offset = (second_start[0] - first_start[0], second_start[1] - first_start[1])
+    denominator = _cross(first_vector, second_vector)
+
+    if abs(denominator) > epsilon:
+        first_ratio = _cross(offset, second_vector) / denominator
+        second_ratio = _cross(offset, first_vector) / denominator
+        if -epsilon <= first_ratio <= 1 + epsilon and -epsilon <= second_ratio <= 1 + epsilon:
+            return True, (
+                first_start[0] + first_ratio * first_vector[0],
+                first_start[1] + first_ratio * first_vector[1],
+            )
+        return False, None
+
+    if abs(_cross(offset, first_vector)) > epsilon:
+        return False, None
+
+    axis = 0 if abs(first_vector[0]) >= abs(first_vector[1]) else 1
+    overlap_start = max(
+        min(first_start[axis], first_end[axis]),
+        min(second_start[axis], second_end[axis]),
+    )
+    overlap_end = min(
+        max(first_start[axis], first_end[axis]),
+        max(second_start[axis], second_end[axis]),
+    )
+    if overlap_end < overlap_start - epsilon:
+        return False, None
+    if overlap_end - overlap_start > epsilon:
+        return True, None
+
+    for point in (first_start, first_end, second_start, second_end):
+        if (
+            min(first_start[axis], first_end[axis]) - epsilon <= point[axis]
+            <= max(first_start[axis], first_end[axis]) + epsilon
+            and min(second_start[axis], second_end[axis]) - epsilon <= point[axis]
+            <= max(second_start[axis], second_end[axis]) + epsilon
+        ):
+            return True, point
+    return False, None
+
+
+def route_geometries_cross(first: RouteCandidate, second: RouteCandidate) -> bool:
+    first_segments = first.segments or [first.points]
+    second_segments = second.segments or [second.points]
+    first_endpoints = [point for point in (first.points[:1] + first.points[-1:])]
+    second_endpoints = [point for point in (second.points[:1] + second.points[-1:])]
+    shared_terminals = [
+        (first_point, second_point)
+        for first_point in first_endpoints
+        for second_point in second_endpoints
+        if abs(first_point[0] - second_point[0]) <= 1e-9
+        and abs(first_point[1] - second_point[1]) <= 1e-9
+    ]
+
+    for first_segment in first_segments:
+        for second_segment in second_segments:
+            for first_start, first_end in zip(first_segment, first_segment[1:]):
+                for second_start, second_end in zip(second_segment, second_segment[1:]):
+                    intersects, intersection = _segment_intersection(
+                        first_start,
+                        first_end,
+                        second_start,
+                        second_end,
+                    )
+                    if not intersects:
+                        continue
+                    if intersection is not None and any(
+                        abs(intersection[0] - first_terminal[0]) <= 1e-9
+                        and abs(intersection[1] - first_terminal[1]) <= 1e-9
+                        and abs(intersection[0] - second_terminal[0]) <= 1e-9
+                        and abs(intersection[1] - second_terminal[1]) <= 1e-9
+                        for first_terminal, second_terminal in shared_terminals
+                    ):
+                        continue
+                    return True
+    return False
+
+
+def exclude_crossing_spans(
+    spans: list[RouteCandidate],
+    reference_route: RouteCandidate,
+) -> list[RouteCandidate]:
+    return [span for span in spans if not route_geometries_cross(span, reference_route)]
+
+
 def exclude_reference_spans(
     spans: list[RouteCandidate],
     excluded_span_ids: list[str],

@@ -13,7 +13,12 @@ from includes.output_writer import (
     write_route_kmz,
 )
 from includes.kml_parser import RouteCandidate, parse_kml_file
-from includes.route_planner import RoutePlanningError, find_shortest_route
+from includes.route_planner import (
+    RoutePlanningError,
+    exclude_crossing_spans,
+    find_shortest_route,
+    route_geometries_cross,
+)
 
 
 SAMPLE_KML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -30,6 +35,15 @@ SAMPLE_KML = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 class RoutePlannerTests(unittest.TestCase):
+    def test_detects_crossing_routes_but_allows_shared_terminal(self) -> None:
+        reference = RouteCandidate("R001", "Reference", "A", "Z", 2, [(0, 0), (1, 1)])
+        crossing = RouteCandidate("R002", "Crossing", "B", "C", 2, [(0, 1), (1, 0)])
+        shared_terminal = RouteCandidate("R003", "Terminal branch", "A", "C", 2, [(0, 0), (0, 1)])
+
+        self.assertTrue(route_geometries_cross(reference, crossing))
+        self.assertFalse(route_geometries_cross(reference, shared_terminal))
+        self.assertEqual(exclude_crossing_spans([crossing, shared_terminal], reference), [shared_terminal])
+
     def test_finds_shortest_composite_route_through_intermediate_manholes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             kml_path = Path(temporary_directory) / "network.kml"

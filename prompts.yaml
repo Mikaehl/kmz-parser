@@ -37,6 +37,20 @@ compare:
     spans. Return route_id values in order from start to destination. Use each span at
     most once and do not invent identifiers.
 
+ring:
+  fr: >-
+    Trouve deux itinéraires continus et aussi différents que possible entre A-END et
+    Z-END à partir des spans fournis. Chaque itinéraire doit être une séquence ordonnée
+    de spans contigus; les deux itinéraires ne doivent partager aucun span et ne doivent
+    pas se croiser géométriquement hors des sites communs A-END et Z-END. N'invente aucun
+    route_id. Le programme vérifiera la continuité et rejettera les routes invalides.
+  en: >-
+    Find two continuous and as geographically diverse as possible routes between
+    A-END and Z-END from the supplied spans. Each route must be an ordered sequence of
+    contiguous spans; the two routes must not share spans or cross geometrically except
+    at the shared A-END and Z-END sites. Do not invent route_id values. The program
+    validates continuity and rejects invalid routes.
+
 diverse:
   fr: >-
     Selectionne deux routes aussi differentes que possible par leur trace geographique,

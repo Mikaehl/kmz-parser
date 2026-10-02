@@ -1,0 +1,133 @@
+[
+    {
+        "type d'objet":"L",
+        "id d'objet":"015-002_015-012",
+        "incohérence trouvée":"L'extrémité de la géométrie ne correspond pas à l'objet référencé dans l'ID",
+        "explication de l'incohérence":"L'ID indique une connexion 015-002 -> 015-012, mais le point final de la géométrie ([2.188078,48.684615]) correspond à l'objet 015-003 ([2.188096,48.684617]), et non à 015-012 ([2.081739,48.727214]).",
+        "solution de résolution possible de l'incohérence":"Corriger la géométrie pour la relier à 015-012, ou modifier l'ID en 015-002_015-003 selon l'intention réelle."
+    },
+    {
+        "type d'objet":"L",
+        "id d'objet":"PAR-011_PAR-011-MH2",
+        "incohérence trouvée":"L'extrémité de la géométrie correspond à un objet différent de celui mentionné dans l'ID",
+        "explication de l'incohérence":"L'ID indique PAR-011 -> PAR-011-MH2, mais le point final ([2.366805,48.915429]) correspond à l'objet 009-002 ([2.366796,48.91543]), et non à PAR-011-MH2 ([2.367584,48.910638]).",
+        "solution de résolution possible de l'incohérence":"Mettre à jour la géométrie pour pointer vers PAR-011-MH2, ou vérifier si l'objet 009-002 est le destinataire réel."
+    },
+    {
+        "type d'objet":"L",
+        "id d'objet":"001-001_001-002#2",
+        "incohérence trouvée":"La géométrie connecte des objets différents de ceux indiqués dans l'ID",
+        "explication de l'incohérence":"L'ID suggère une connexion 001-001 -> 001-002, mais la géométrie ([2.180969,48.692517] -> [2.176351,48.695326]) relie les emplacements de 015-004 et 015-005.",
+        "solution de résolution possible de l'incohérence":"Vérifier la destination réelle du câble et corriger l'ID ou la géométrie en conséquence."
+    },
+    {
+        "type d'objet":"L",
+        "id d'objet":"PAR-011_PAR-011-MH1",
+        "incohérence trouvée":"Sens de parcours inversé par rapport aux objets référencés",
+        "explication de l'incohérence":"L'ID indique PAR-011 -> PAR-011-MH1, mais le point de départ ([2.367388,48.909893]) correspond à PAR-011-MH1 et le point d'arrivée ([2.36823,48.910118]) à PAR-011 (décalage ~85m par rapport à l'ordre logique).",
+        "solution de résolution possible de l'incohérence":"Inverser les extrémités de la géométrie ou réviser l'ordre des objets dans l'ID."
+    },
+    {
+        "type d'objet":"L","id d'objet":"PAR-016_PAR-016-MH2",
+        "incohérence trouvée":"Début de géométrie très éloigné de l'objet de référence",
+        "explication de l'incohérence":"L'ID réfère à PAR-016, dont la position est [2.36807,48.907091], mais la géométrie commence à [2.36257,48.91471] (décalage d'environ 550m), proche de PAR-016-MH2.",
+        "solution de résolution possible de l'incohérence":"Corriger la géométrie pour débuter aux coordonnées de PAR-016 ou vérifier l'objet de départ."
+    },
+    {
+        "type d'objet":"L",
+        "id d'objet":"PAR-016_PAR-016-MH2#2",
+        "incohérence trouvée":"Début de géométrie très éloigné de l'objet de référence",
+        "explication de l'incohérence":"L'ID réfère à PAR-016 ([2.36807,48.907091]), mais la géométrie commence à [2.362162,48.914714], décalage important (>500m).",
+        "solution de résolution possible de l'incohérence":"Aligner le point de départ sur les coordonnées de PAR-016."
+    },
+    {
+        "type d'objet":"L",
+        "id d'objet":"PAR-010_PAR-010-MH1",
+        "incohérence trouvée":"Les deux extrémités de la géométrie sont éloignées des objets référencés",
+        "explication de l'incohérence":"L'ID indique PAR-010 -> PAR-010-MH1, mais le point de départ ([2.073014,48.731392]) correspond à PAR-010-MH1 et le point d'arrivée ([2.072339,48.731399]) est éloigné de PAR-010 ([2.072206,48.731435], décalage ~80m).",
+        "solution de résolution possible de l'incohérence":"Corriger les coordonnées des extrémités pour qu'elles coïncident avec PAR-010 et PAR-010-MH1."
+    },
+    {
+        "type d'objet":"L",
+        "id d'objet":"PAR-018_PAR-018-MH1",
+        "incohérence trouvée":"Début de géométrie éloigné de l'objet de référence",
+        "explication de l'incohérence":"L'ID réfère à PAR-018 ([2.421901,48.90035]), mais la géométrie commence à [2.42198,48.900706] (décalage vertical d'environ 35m).",
+        "solution de résolution possible de l'incohérence":"Rapprocher le point de départ des coordonnées de PAR-018."
+    },
+    {
+        "type d'objet":"L","id d'objet":"PAR-018_PAR-018-MH2",
+        "incohérence trouvée":"Début de géométrie très éloigné de l'objet de référence",
+        "explication de l'incohérence":"L'ID réfère à PAR-018 ([2.421901,48.90035]), mais la géométrie commence à [2.421304,48.900288] (décalage d'environ 60m).",
+        "solution de résolution possible de l'incohérence":"Corriger les coordonnées de départ pour correspondre à PAR-018."
+    },
+    {
+        "type d'objet":"L","id d'objet":"PAR-008_PAR-008-MH2",
+        "incohérence trouvée":"Début de géométrie très éloigné de l'objet de référence",
+        "explication de l'incohérence":"L'ID réfère à PAR-008 ([2.402362,48.925367]), mais la géométrie commence à [2.403325,48.925218] (décalage horizontal d'environ 100m).",
+        "solution de résolution possible de l'incohérence":"Aligner le point de départ sur les coordonnées de PAR-008."
+    },
+    {
+        "type d'objet":"L","id d'objet":"PAR-008_PAR-008-MH1",
+        "incohérence trouvée":"Début de géométrie très éloigné de l'objet de référence",
+        "explication de l'incohérence":"L'ID réfère à PAR-008 ([2.402362,48.925367]), mais la géométrie commence à [2.401723,48.925422] (décalage horizontal d'environ 60m).",
+        "solution de résolution possible de l'incohérence":"Corriger le point de départ pour qu'il corresponde à PAR-008."
+    },
+    {
+        "type d'objet":"L","id d'objet":"PAR-002-MH2_PAR-002",
+        "incohérence trouvée":"Fin de géométrie éloignée de l'objet de référence",
+        "explication de l'incohérence":"L'ID indique PAR-002-MH2 -> PAR-002, mais le point d'arrivée ([2.350788,48.926603]) est éloigné de PAR-002 ([2.350233,48.927116], décalage ~60m).",
+        "solution de résolution possible de l'incohérence":"Corriger le point d'arrivée pour qu'il corresponde à PAR-002."
+    },
+    {
+        "type d'objet":"L","id d'objet":"PAR-001_PAR-001-MH1",
+        "incohérence trouvée":"Géométrie non alignée sur les objets référencés",
+        "explication de l'incohérence":"L'ID indique PAR-001 -> PAR-001-MH1, mais le point d'arrivée ([2.384145,48.856304]) ne correspond ni à PAR-001 ([2.384576,48.856346]) ni à PAR-001-MH1 ([2.383427,48.85592]), décalage >40m.",
+        "solution de résolution possible de l'incohérence":"Réviser les coordonnées des extrémités pour qu'elles coïncident avec les Points PAR-001 et PAR-001-MH1."
+    },
+    {
+        "type d'objet":"L","id d'objet":"PAR-005_PAR-005-MH2",
+        "incohérence trouvée":"Décalage significatif des extrémités",
+        "explication de l'incohérence":"L'ID indique PAR-₀₀₅ -> PAR-₀₀₅-MH₂, mais le point de départ ([₂.₃₇₀₀₈,₄₈.₉₀₇₆₇₆]) est à ~₂₇m de PAR-₀₀₅ ([₂.₃₆₉₈₀₇,₄₈.₉₀₇₅₆₇]) et le point d'arrivée ([₂.₃₇₀₅₈₄,₄₈.₉₀₇₶₁]) à ~₂₶m de PAR-₀₀₅-MH₂ ([₂.₃₇₀₥₁₁,₄ₛ.₎₀ₛ₁₁]).",
+        "solution de résolution possible de l'incohérence":"Ajuster les coordonnées des deux extrémités aux valeurs des Points référencés."
+    },
+    {
+        "type d'objet":"L","id d'objet":"PAR-００５_PAR-００５-MH２#２",
+        "incohérence trouvée":"Décalage significatif du point de départ",
+        "explication de l'incohérence":"L'ID réfère à PAR-００５, mais la géométrie commence à [２.３７００６７,４８.９０７４３５] (décalage ~２６m par rapport à PAR-００５ [２.３６９８０７,４８.９０７５６７]).",
+        "solution de résolution possible de l'incohérence":"Corriger le point de départ pour correspondre à PAR-００５."
+    },
+    {
+        "type d'objet":"L","id d'objet":"PAR-００６_PAR-００６-MH１",
+        "incohérence trouvée":"Décalage significatif du point de départ",
+        "explication de l'incohérence":"L'ID réfère à PAR-００６ ([２.２２８１５,４８.６４９７０９]), mais la géométrie commence à [２.２２８３０４,４８.６４９７８] (décalage ~１５m).",
+        "solution de résolution possible de l'incohérence ":"Aligner le point de départ sur les coordonnées de PAR-006."
+    },
+    {
+        "type d'objet":"L",
+        "id d'objet":"PAR-017_PAR-016-MH2",
+        "incohérence trouvée":"Décalage significatif du point de départ",
+        "explication de l'incohérence":"L'ID réfère à PAR-017 ([2.362478,48.914067]), mais la géométrie commence à [2.362601,48.914188] (décalage ~12m).",
+        "solution de résolution possible de l'incohérence":"Corriger le point de départ pour correspondre à PAR-017."
+    },
+    {
+        "type d'objet":"L",
+        "id d'objet":"PAR-003_PAR-003-MH2",
+        "incohérence trouvée":"Décalage significatif du point de départ",
+        "explication de l'incohérence":"L'ID réfère à PAR-003 ([2.295108,48.900121]), mais la géométrie commence à [2.295014,48.900358] (décalage ~25m).",
+        "solution de résolution possible de l'incohérence":"Ajuster le point de départ aux coordonnées de PAR-003."
+    },
+    {
+        "type d'objet":"L",
+        "id d'objet":"PAR-003_PAR-003-MH1",
+        "incohérence trouvée":"Décalage significatif du point de départ",
+        "explication de l'incohérence":"L'ID réfère à PAR-003 ([2.295108,48.900121]), mais la géométrie commence à [2.295555,48.899919] (décalage ~45m).",
+        "solution de résolution possible de l'incohérence":"Corriger le point de départ pour qu'il corresponde à PAR-003."
+    },
+    {
+        "type d'objet":"L","id d'objet":"001-001_001-002",
+        "incohérence trouvée":"Nombre de sommets déclaré ne correspond pas au nombre de coordonnées fournies",
+        "explication de l'incohérence":"Selon le format de géométrie LineString, le premier élément est le nombre de sommets. Ici '10' est indiqué mais seul le couple de coordonnées de début et de fin (2 sommets) est présent dans la liste, ce qui est incohérent.",
+        "solution de résolution possible de l'incohérence":"Mettre à jour le compteur à 2 si seul le début et la fin sont stockés, ou ajouter les 8 sommets intermédiaires manquants."
+    }
+]
+

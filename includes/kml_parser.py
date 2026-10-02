@@ -148,6 +148,84 @@ def parse_named_points(input_path: Path) -> list[NamedPoint]:
     return _named_points(_load_kml_root(input_path))
 
 
+def parse_kml_objects(input_path: Path) -> list[dict[str, object]]:
+    root = _load_kml_root(input_path)
+    objects: list[dict[str, object]] = []
+    used_ids: set[str] = set()
+    id_counts: dict[str, int] = {}
+    geometry_names = {"Point", "LineString", "Polygon", "Track", "Model"}
+
+    def visit(element: ElementTree.Element, folders: tuple[str, ...]) -> None:
+        local_name = _local_name(element)
+        current_folders = folders
+        if local_name == "Folder":
+            folder_name = _child_text(element, "name")
+            if folder_name:
+                current_folders = (*folders, folder_name)
+        elif local_name == "Placemark":
+            name = _child_text(element, "name") or ""
+            geometries: list[dict[str, object]] = []
+            for geometry in element.iter():
+                geometry_type = _local_name(geometry)
+                if geometry_type not in geometry_names:
+                    continue
+                coordinates: list[tuple[float, float]] = []
+                for coordinates_element in geometry.iter():
+                    if _local_name(coordinates_element) == "coordinates":
+                        coordinates.extend(_parse_coordinates(coordinates_element.text))
+                geometry_summary: dict[str, object] = {"type": geometry_type}
+                if coordinates:
+                    if geometry_type == "Point":
+                        geometry_summary["coordinates"] = list(coordinates[0])
+                    elif geometry_type == "LineString":
+                        geometry_summary["coordinate_count"] = len(coordinates)
+                        geometry_summary["start"] = list(coordinates[0])
+                        geometry_summary["end"] = list(coordinates[-1])
+                    else:
+                        geometry_summary["sample"] = _sample_points(coordinates)
+                geometries.append(geometry_summary)
+
+            object_type = geometries[0]["type"] if geometries else "Placemark"
+            kml_id = element.attrib.get("id")
+            base_id = str(kml_id or name or f"{object_type}-{len(objects) + 1}")
+            id_counts[base_id] = id_counts.get(base_id, 0) + 1
+            object_id = base_id if id_counts[base_id] == 1 else f"{base_id}#{id_counts[base_id]}"
+            while object_id in used_ids:
+                id_counts[base_id] += 1
+                object_id = f"{base_id}#{id_counts[base_id]}"
+            used_ids.add(object_id)
+
+            extended_data: dict[str, str] = {}
+            for data_element in element.iter():
+                data_type = _local_name(data_element)
+                if data_type in {"Data", "SimpleData"}:
+                    data_name = data_element.attrib.get("name")
+                    data_value = _child_text(data_element, "value") if data_type == "Data" else data_element.text
+                    if data_name and data_value:
+                        extended_data[data_name] = data_value.strip()
+
+            object_data: dict[str, object] = {"object_id": object_id, "type": object_type}
+            if kml_id:
+                object_data["kml_id"] = kml_id
+            if name:
+                object_data["name"] = name
+            if current_folders:
+                object_data["folders"] = list(current_folders)
+            style_url = _child_text(element, "styleUrl")
+            if style_url:
+                object_data["style_url"] = style_url
+            if extended_data:
+                object_data["extended_data"] = extended_data
+            if geometries:
+                object_data["geometries"] = geometries
+            objects.append(object_data)
+        for child in element:
+            visit(child, current_folders)
+
+    visit(root, ())
+    return objects
+
+
 def find_manhole_points(
     named_points: list[NamedPoint],
     routes: list[RouteCandidate],

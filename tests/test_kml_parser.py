@@ -6,6 +6,7 @@ from pathlib import Path
 from includes.kml_parser import (
     KmlInputError,
     find_manhole_points,
+    parse_kml_objects,
     parse_kml_file,
     parse_named_points,
 )
@@ -46,6 +47,26 @@ class KmlParserTests(unittest.TestCase):
 
         self.assertEqual(len(routes), 1)
         self.assertEqual(routes[0].route_name, "River path")
+
+    def test_builds_kml_object_inventory_with_stable_duplicate_ids(self) -> None:
+                duplicate_kml = """<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+                    <Folder><name>Network</name>
+                        <Placemark id="point-a"><name>A</name><Point><coordinates>1,2,0</coordinates></Point></Placemark>
+                        <Placemark><name>Cable</name><LineString><coordinates>1,2,0 3,4,0</coordinates></LineString></Placemark>
+                        <Placemark><name>Cable</name><LineString><coordinates>3,4,0 5,6,0</coordinates></LineString></Placemark>
+                    </Folder>
+                </Document></kml>"""
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                        input_path = Path(temporary_directory) / "inventory.kml"
+                        input_path.write_text(duplicate_kml, encoding="utf-8")
+
+                        objects = parse_kml_objects(input_path)
+
+                self.assertEqual([item["object_id"] for item in objects], ["point-a", "Cable", "Cable#2"])
+                self.assertEqual(objects[0]["folders"], ["Network"])
+                self.assertEqual(objects[0]["type"], "Point")
+                self.assertEqual(objects[1]["geometries"][0]["start"], [1.0, 2.0])
+                self.assertEqual(objects[1]["geometries"][0]["end"], [3.0, 4.0])
 
     def test_rejects_xml_that_is_not_kml(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

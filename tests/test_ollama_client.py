@@ -10,7 +10,7 @@ from unittest.mock import patch
 from includes.cli import _build_parser, _display_prompt_and_results, _load_api_key
 from includes.configuration import load_locale
 from includes.kml_parser import RouteCandidate
-from includes.ollama_client import select_routes
+from includes.ollama_client import check_kml_consistency, list_ollama_models, select_routes
 
 
 class OllamaClientTests(unittest.TestCase):
@@ -23,6 +23,7 @@ class OllamaClientTests(unittest.TestCase):
             "common": {"fr": "COMMON ROUTE DEFINITION"},
             "shorter": {"fr": "Choisir la plus courte"},
             "closest": {"fr": "Choisir le manhole le plus proche"},
+            "check": {"fr": "Vérifie la cohérence des objets."},
         }
 
     def _mock_response(self, route_id: str) -> io.BytesIO:
@@ -89,6 +90,109 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual(request_metadata["prompt_tokens"], 14)
         self.assertEqual(request_metadata["completion_tokens"], 6)
         self.assertEqual(request_metadata["total_tokens"], 20)
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_consistency_check_returns_only_validated_object_anomalies(self, mock_urlopen: object) -> None:
+        anomaly = {
+            "type d'objet": "LineString",
+            "id d'objet": "Cable-1",
+            "incohérence trouvée": "Extrémité sans point correspondant",
+            "explication de l'incohérence": "Aucun point du réseau ne correspond à l'extrémité.",
+            "solution de résolution possible de l'incohérence": "Raccorder l'extrémité au point correct.",
+        }
+        mock_urlopen.return_value = io.BytesIO(
+            json.dumps(
+                {"message": {"content": json.dumps({"inconsistencies": [anomaly]})}}
+            ).encode("utf-8")
+        )
+        objects = [{"object_id": "Cable-1", "type": "LineString", "name": "Cable"}]
+        request_metadata: dict[str, object] = {}
+
+        inconsistencies = check_kml_consistency(
+            provider="ollama",
+            base_url="http://localhost:11434",
+            model="llama3.1",
+            timeout_seconds=10,
+            locale="fr",
+            prompt_config=self.prompts,
+            objects=objects,
+            request_metadata=request_metadata,
+        )
+
+        request_body = json.loads(mock_urlopen.call_args.args[0].data)
+        self.assertEqual(inconsistencies, [anomaly])
+        self.assertEqual(
+            json.loads(request_body["messages"][1]["content"])["objects"],
+            [{"i": "Cable-1", "t": "L", "n": "Cable"}],
+        )
+        self.assertIn('"inconsistencies"', request_body["messages"][0]["content"])
+        self.assertEqual(request_metadata["model"], "llama3.1")
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_consistency_check_rejects_unknown_object_ids(self, mock_urlopen: object) -> None:
+        anomaly = {
+            "type d'objet": "Point",
+            "id d'objet": "invented-id",
+            "incohérence trouvée": "Unknown object",
+            "explication de l'incohérence": "No such object exists.",
+            "solution de résolution possible de l'incohérence": "Remove it.",
+        }
+        mock_urlopen.return_value = io.BytesIO(
+            json.dumps(
+                {"message": {"content": json.dumps({"inconsistencies": [anomaly]})}}
+            ).encode("utf-8")
+        )
+
+        with self.assertRaisesRegex(ValueError, "unknown object id"):
+            check_kml_consistency(
+                provider="ollama",
+                base_url="http://localhost:11434",
+                model="llama3.1",
+                timeout_seconds=10,
+                locale="fr",
+                prompt_config=self.prompts,
+                objects=[{"object_id": "known-id", "type": "Point"}],
+            )
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_consistency_check_returns_one_row_per_issue_for_same_object(self, mock_urlopen: object) -> None:
+        first = {
+            "type d'objet": "LineString",
+            "id d'objet": "Cable-1",
+            "incohérence trouvée": "Issue one",
+            "explication de l'incohérence": "Explanation one",
+            "solution de résolution possible de l'incohérence": "Fix one",
+        }
+        second = {
+            **first,
+            "incohérence trouvée": "Issue two",
+            "explication de l'incohérence": "Explanation two",
+            "solution de résolution possible de l'incohérence": "",
+        }
+        mock_urlopen.return_value = io.BytesIO(
+            json.dumps(
+                {"message": {"content": json.dumps({"inconsistencies": [first, second]})}}
+            ).encode("utf-8")
+        )
+
+        request_metadata: dict[str, object] = {}
+        results = check_kml_consistency(
+            provider="ollama",
+            base_url="http://localhost:11434",
+            model="llama3.1",
+            timeout_seconds=10,
+            locale="fr",
+            prompt_config=self.prompts,
+            objects=[{"object_id": "Cable-1", "type": "LineString"}],
+            request_metadata=request_metadata,
+        )
+
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]["incohérence trouvée"], "Issue one")
+        self.assertEqual(results[1]["incohérence trouvée"], "Issue two")
+        self.assertEqual(results[0]["id d'objet"], results[1]["id d'objet"])
+        self.assertEqual(results[0]["solution de résolution possible de l'incohérence"], "Fix one")
+        self.assertEqual(request_metadata["potential_solution_count"], 1)
 
     @patch("includes.ollama_client.urllib.request.urlopen")
     def test_shorter_mode_rejects_non_shortest_model_choice(self, mock_urlopen: object) -> None:
@@ -293,6 +397,26 @@ class OllamaClientTests(unittest.TestCase):
         )
         self.assertEqual(diverse.span, "0001")
         self.assertTrue(diverse.build)
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_lists_models_from_ollama_tags_endpoint(self, mock_urlopen: object) -> None:
+        mock_urlopen.return_value = io.BytesIO(
+            json.dumps(
+                {
+                    "models": [
+                        {"name": "llama3.1:latest"},
+                        {"model": "qwen2.5:7b"},
+                    ]
+                }
+            ).encode("utf-8")
+        )
+
+        models = list_ollama_models("http://localhost:11434/", 10)
+
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://localhost:11434/api/tags")
+        self.assertEqual(request.get_method(), "GET")
+        self.assertEqual(models, ["llama3.1:latest", "qwen2.5:7b"])
 
     def test_reads_openrouter_api_key_from_config_directory_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

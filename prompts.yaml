@@ -57,3 +57,31 @@ closest:
     From the candidate manholes, select the one closest to the supplied address.
     Compare the locally calculated geodesic distances and return exactly one route_id.
     Do not change distances or invent points.
+
+check:
+  fr: >-
+    Vérifie la cohérence des objets du fichier KML/KMZ à partir de l'inventaire fourni.
+    Repère uniquement les incohérences concrètes entre IDs, noms, types, dossiers,
+    propriétés et géométries. Vérifie notamment les références ou raccordements qui
+    ne correspondent pas aux objets présents et les objets manifestement mal formés.
+    N'invente pas d'erreur quand les données ne permettent pas de conclure. Pour chaque
+    anomalie, fournis le type d'objet, son object_id exact, l'incohérence trouvée,
+    une explication factuelle et une solution possible. Ne retourne aucune ligne pour
+    les objets cohérents. L'inventaire utilise des clés compactes : i = ID exact,
+    t = type (P = Point, L = LineString), n = nom si différent de i, f = dossier,
+    s = style, d = données complémentaires et g = géométrie. Une géométrie Point est
+    [longitude, latitude]; une LineString est [nombre de sommets, [longitude, latitude]
+    de début, [longitude, latitude] de fin]. Utilise uniquement les valeurs i présentes
+    dans l'inventaire pour « id d'objet ».
+  en: >-
+    Check the consistency of the KML/KMZ objects using the supplied inventory.
+    Report only concrete inconsistencies between IDs, names, types, folders,
+    properties, and geometries. In particular, check references or connections that
+    do not match existing objects and clearly malformed objects. Do not invent an
+    issue when the data is insufficient. For each issue, provide the object type, its
+    exact object_id, the inconsistency, a factual explanation, and a possible fix.
+    Return no row for consistent objects. The inventory uses compact keys: i=exact ID,
+    t=type (P=Point, L=LineString), n=name when different from i, f=folder, s=style,
+    d=extended data, and g=geometry. A Point geometry is [longitude,latitude]; a
+    LineString is [vertex_count,[start_lon,start_lat],[end_lon,end_lat]]. Use only i
+    values from the inventory for id d'objet.

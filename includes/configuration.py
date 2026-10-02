@@ -86,3 +86,14 @@ def load_locale(locale: str) -> dict[str, str]:
 def load_prompts(settings: dict[str, Any], base_directory: Path) -> dict[str, Any]:
     prompts_path = (base_directory / settings["prompts_file"]).resolve()
     return load_yaml(prompts_path)
+
+
+def update_ollama_model(config_path: Path, model: str) -> None:
+    config_path = config_path.resolve()
+    config = load_yaml(config_path)
+    ollama_settings = config.setdefault("ollama", {})
+    if not isinstance(ollama_settings, dict):
+        raise ValueError("ollama configuration must be a YAML mapping")
+    ollama_settings["model"] = model
+    with config_path.open("w", encoding="utf-8") as config_file:
+        yaml.safe_dump(config, config_file, allow_unicode=True, sort_keys=False)

@@ -4,29 +4,38 @@ import logging
 import sqlite3
 import sys
 import time
+import textwrap
 from pathlib import Path
 from typing import Any
 
 from includes.built_routes import load_built_route_reference
-from includes.configuration import load_locale, load_prompts, load_settings
+from includes.configuration import load_locale, load_prompts, load_settings, update_ollama_model
 from includes.geocoder import GeocodingError, geocode_address
 from includes.kml_parser import (
     KmlInputError,
     RouteCandidate,
     distance_between_km,
     find_manhole_points,
+    parse_kml_objects,
     parse_kml_file,
     parse_named_points,
 )
 from includes.logging_setup import configure_logging
-from includes.ollama_client import ProviderConfigurationError, build_system_prompt, select_routes
+from includes.ollama_client import (
+    ProviderConfigurationError,
+    build_consistency_prompt,
+    build_system_prompt,
+    check_kml_consistency,
+    list_ollama_models,
+    select_routes,
+)
 from includes.output_writer import (
     build_route_output_paths,
     write_built_route_json,
     write_results,
     write_route_kmz,
 )
-from includes.request_store import record_request
+from includes.request_store import list_check_anomalies, record_request
 from includes.route_planner import (
     RoutePlanningError,
     build_route_from_spans,
@@ -63,10 +72,87 @@ def _display_prompt_and_results(system_prompt: str, result_data: list[dict[str, 
     _display_results(result_data)
 
 
+def _positive_integer(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("model index must be an integer") from error
+    if number < 1:
+        raise argparse.ArgumentTypeError("model index must be greater than zero")
+    return number
+
+
+def _print_numbered_models(models: list[str]) -> None:
+    if not models:
+        print("Aucun modèle Ollama disponible.")
+        return
+    for index, model in enumerate(models, start=1):
+        print(f"{index}. {model}")
+
+
+def _print_check_anomaly_table(rows: list[dict[str, Any]], locale: dict[str, str]) -> None:
+    if not rows:
+        print(locale["message_no_check_anomalies"])
+        return
+
+    columns = (
+        ("request_id", locale["table_check_request"], 5),
+        ("object_type", locale["table_check_type"], 12),
+        ("object_id", locale["table_check_object_id"], 14),
+        ("inconsistency", locale["table_check_inconsistency"], 20),
+        ("explanation", locale["table_check_explanation"], 24),
+        ("potential_solution", locale["table_check_solution"], 24),
+        ("ai_engine", locale["table_check_engine"], 16),
+    )
+    separator = "+" + "+".join("-" * (width + 2) for _, _, width in columns) + "+"
+
+    def print_row(values: list[str]) -> None:
+        wrapped = [
+            textwrap.wrap(value, width=width, break_long_words=True) or [""]
+            for value, (_, _, width) in zip(values, columns)
+        ]
+        for line_index in range(max(len(cell_lines) for cell_lines in wrapped)):
+            cells = [
+                cell_lines[line_index] if line_index < len(cell_lines) else ""
+                for cell_lines in wrapped
+            ]
+            print(
+                "| "
+                + " | ".join(
+                    value.ljust(width)
+                    for value, (_, _, width) in zip(cells, columns)
+                )
+                + " |"
+            )
+
+    print(separator)
+    print_row([label for _, label, _ in columns])
+    print(separator)
+    for row in rows:
+        print_row([str(row.get(key) or "") for key, _, _ in columns])
+        print(separator)
+
+
 def _build_parser(locale: dict[str, str]) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=locale["app_description"])
-    parser.add_argument("input_file", type=Path, help=locale["argument_input"])
+    parser.add_argument("input_file", type=Path, nargs="?", help=locale["argument_input"])
+    model_action_group = parser.add_mutually_exclusive_group()
+    model_action_group.add_argument("--mlist", action="store_true", help=locale["argument_mlist"])
+    model_action_group.add_argument(
+        "--muse",
+        type=_positive_integer,
+        metavar="NUMERO",
+        help=locale["argument_muse"],
+    )
+    model_action_group.add_argument(
+        "--mchange",
+        type=_positive_integer,
+        metavar="NUMERO",
+        help=locale["argument_mchange"],
+    )
+    parser.add_argument("--clist", action="store_true", help=locale["argument_clist"])
     parser.add_argument("--mode", "-m", choices=VALID_MODES, help=locale["argument_mode"])
+    parser.add_argument("--check", action="store_true", help=locale["argument_check"])
     parser.add_argument("--closest", metavar="ADDRESS", help=locale["argument_closest"])
     parser.add_argument("--a-end", help=locale["argument_a_end"])
     parser.add_argument("--z-end", help=locale["argument_z_end"])
@@ -118,11 +204,85 @@ def run(arguments: list[str] | None = None) -> int:
     locale = load_locale(locale_code)
     parser = _build_parser(locale)
     parsed = parser.parse_args(arguments)
-    if parsed.closest:
+    if parsed.check:
+        if not parsed.input_file:
+            parser.error(locale["error_input_required"])
+        if (
+            parsed.mode
+            or parsed.closest
+            or parsed.a_end
+            or parsed.z_end
+            or parsed.cable
+            or parsed.span
+            or parsed.build
+            or parsed.output
+            or parsed.mlist
+            or parsed.mchange is not None
+            or parsed.clist
+        ):
+            parser.error(locale["error_check_parameters"])
+        mode = "check"
+    elif parsed.clist:
+        if (
+            parsed.input_file
+            or parsed.mode
+            or parsed.closest
+            or parsed.a_end
+            or parsed.z_end
+            or parsed.cable
+            or parsed.span
+            or parsed.build
+            or parsed.output
+            or parsed.mlist
+            or parsed.muse is not None
+            or parsed.mchange is not None
+            or parsed.provider
+            or parsed.provider_alias
+        ):
+            parser.error(locale["error_clist_parameters"])
+        mode = "clist"
+    elif parsed.mlist:
+        if (
+            parsed.input_file
+            or parsed.mode
+            or parsed.closest
+            or parsed.a_end
+            or parsed.z_end
+            or parsed.cable
+            or parsed.span
+            or parsed.build
+            or parsed.output
+            or parsed.muse is not None
+            or parsed.clist
+            or parsed.provider
+            or parsed.provider_alias
+        ):
+            parser.error(locale["error_mlist_parameters"])
+        mode = "mlist"
+    elif parsed.mchange is not None:
+        if (
+            parsed.input_file
+            or parsed.mode
+            or parsed.closest
+            or parsed.a_end
+            or parsed.z_end
+            or parsed.cable
+            or parsed.span
+            or parsed.build
+            or parsed.output
+            or parsed.clist
+            or parsed.provider
+            or parsed.provider_alias
+        ):
+            parser.error(locale["error_mchange_parameters"])
+        mode = "mchange"
+    elif parsed.closest:
         if parsed.mode or parsed.a_end or parsed.z_end or parsed.cable or parsed.span or parsed.build:
             parser.error(locale["error_closest_parameters"])
         mode = "closest"
     else:
+        if not parsed.input_file:
+            parser.error(locale["error_input_required"])
         if not parsed.mode:
             parser.error(locale["error_mode_required"])
         mode = parsed.mode
@@ -164,10 +324,139 @@ def run(arguments: list[str] | None = None) -> int:
         request_database_path = log_directory / "requests.sqlite3"
         logger, data_logger = configure_logging(log_directory, log_level)
 
+        if mode == "mlist":
+            ollama_settings = settings["ollama"]
+            request_record["provider"] = "ollama"
+            provider_started = time.perf_counter()
+            models = list_ollama_models(
+                ollama_settings["base_url"],
+                int(ollama_settings["timeout_seconds"]),
+            )
+            request_record["provider_duration_ms"] = (time.perf_counter() - provider_started) * 1000
+            request_record["result"] = models
+            _print_numbered_models(models)
+            logger.info(_format_message(locale, "log_models_found", count=len(models)))
+            request_record["status"] = "success"
+            return 0
+
+        if mode == "mchange":
+            ollama_settings = settings["ollama"]
+            request_record["provider"] = "ollama"
+            provider_started = time.perf_counter()
+            models = list_ollama_models(
+                ollama_settings["base_url"],
+                int(ollama_settings["timeout_seconds"]),
+            )
+            request_record["provider_duration_ms"] = (time.perf_counter() - provider_started) * 1000
+            if parsed.mchange > len(models):
+                return reject(
+                    _format_message(locale, "error_model_index", index=parsed.mchange, count=len(models)),
+                    2,
+                )
+            model = models[parsed.mchange - 1]
+            update_ollama_model(parsed.config, model)
+            request_record["model"] = model
+            request_record["result"] = {"index": parsed.mchange, "model": model}
+            logger.info(_format_message(locale, "log_model_changed", model=model))
+            print(_format_message(locale, "message_model_changed", model=model))
+            request_record["status"] = "success"
+            return 0
+
+        if mode == "clist":
+            anomalies = list_check_anomalies(request_database_path)
+            _print_check_anomaly_table(anomalies, locale)
+            request_record["result"] = {"listed_anomaly_count": len(anomalies)}
+            request_record["status"] = "success"
+            logger.info(
+                _format_message(locale, "log_check_anomalies_listed", count=len(anomalies))
+            )
+            return 0
+
+        if parsed.muse is not None:
+            selected_provider = parsed.provider_alias or parsed.provider or settings["provider"]
+            if selected_provider == "or":
+                selected_provider = "openrouter"
+            if selected_provider != "ollama":
+                return reject(locale["error_muse_ollama_only"], 2)
+            if mode == "djk":
+                return reject(locale["error_muse_djk"], 2)
+            request_record["provider"] = "ollama"
+            provider_started = time.perf_counter()
+            models = list_ollama_models(
+                settings["ollama"]["base_url"],
+                int(settings["ollama"]["timeout_seconds"]),
+            )
+            request_record["provider_duration_ms"] = (time.perf_counter() - provider_started) * 1000
+            if parsed.muse > len(models):
+                return reject(
+                    _format_message(locale, "error_model_index", index=parsed.muse, count=len(models)),
+                    2,
+                )
+            settings["ollama"]["model"] = models[parsed.muse - 1]
+
         if not parsed.input_file.is_file():
             raise FileNotFoundError(_format_message(locale, "error_input_missing", path=parsed.input_file))
 
         logger.info(_format_message(locale, "log_started", path=parsed.input_file))
+        if mode == "check":
+            objects = parse_kml_objects(parsed.input_file)
+            prompts = load_prompts(settings, base_directory)
+            system_prompt = build_consistency_prompt(prompts, locale_code)
+            request_record["prompt"] = system_prompt
+            provider = parsed.provider_alias or parsed.provider or settings["provider"]
+            if provider == "or":
+                provider = "openrouter"
+            if provider not in {"ollama", "openrouter"}:
+                raise ValueError("provider must be 'ollama', 'openrouter', or 'or'")
+            provider_settings = settings[provider]
+            api_key = None
+            if provider == "openrouter":
+                api_key = _load_api_key(provider_settings["api_key_file"], base_directory)
+            model = provider_settings["model"]
+            request_record["provider"] = provider
+            request_record["model"] = model
+            ai_request_metadata: dict[str, Any] = {}
+            provider_started = time.perf_counter()
+            try:
+                results = check_kml_consistency(
+                    provider=provider,
+                    base_url=provider_settings["base_url"],
+                    model=model,
+                    timeout_seconds=int(provider_settings["timeout_seconds"]),
+                    locale=locale_code,
+                    prompt_config=prompts,
+                    objects=objects,
+                    api_key=api_key,
+                    site_url=provider_settings.get("site_url", ""),
+                    app_name=provider_settings.get("app_name", ""),
+                    max_retries=int(provider_settings.get("max_retries", 5)) if provider == "openrouter" else 0,
+                    retry_delay_seconds=float(provider_settings.get("retry_delay_seconds", 2)),
+                    system_prompt=system_prompt,
+                    request_metadata=ai_request_metadata,
+                )
+            finally:
+                request_record["provider_duration_ms"] = (time.perf_counter() - provider_started) * 1000
+                request_record.update(ai_request_metadata)
+
+            inconsistency_count = len(results)
+            potential_solution_count = int(ai_request_metadata.get("potential_solution_count", 0))
+            request_record["inconsistency_count"] = inconsistency_count
+            request_record["potential_solution_count"] = potential_solution_count
+            request_record["anomalies"] = results
+            request_record["result"] = {
+                "inconsistency_count": inconsistency_count,
+                "potential_solution_count": potential_solution_count,
+            }
+            request_record["status"] = "success"
+            logger.info(
+                _format_message(
+                    locale,
+                    "log_check_saved",
+                    count=inconsistency_count,
+                )
+            )
+            return 0
+
         candidates = parse_kml_file(
             parsed.input_file,
             endpoint_match_km=settings["network"]["endpoint_match_km"],
@@ -462,6 +751,15 @@ def run(arguments: list[str] | None = None) -> int:
         return 1
     finally:
         request_record["duration_ms"] = (time.perf_counter() - request_started) * 1000
+        duration_message = _format_message(
+            locale,
+            "log_total_duration",
+            duration_ms=request_record["duration_ms"],
+        )
+        if logger is not None:
+            logger.info(duration_message)
+        else:
+            print(duration_message, file=sys.stderr)
         if "kmz_path" in locals() and kmz_path is not None:
             request_record["kmz_path"] = str(kmz_path.resolve())
         try:

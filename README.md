@@ -49,3 +49,39 @@ Prompts are configured in `prompts.yaml`. Translated CLI and log messages are in
 ```powershell
 python -m unittest discover -s tests -v
 ```
+
+## Tests IA de bout en bout
+
+Le programme externe `tools/ai_test_runner.py` lance kmz-parser sur 50 scénarios
+décrits dans `tests/ai_tests.yaml` : routes courtes, routes diverses, anneaux et
+analyses de cohérence. Les résultats de référence sont conservés dans
+`tests/ai_expected.yaml`. Le fournisseur et le modèle actifs sont lus dans
+`config.yaml`; les tests nécessitent donc un accès fonctionnel à Ollama ou à
+OpenRouter.
+
+Initialisez ou réinitialisez les résultats attendus avec :
+
+```powershell
+python tools/ai_test_runner.py --init
+```
+
+Lancez ensuite la suite et comparez les résultats :
+
+```powershell
+python tools/ai_test_runner.py
+python tools/ai_test_runner.py --or
+```
+
+L'option `--or` force OpenRouter pour toute la suite et transmet également
+`--or` à chaque lancement de `kmz_parser.py`, quelle que soit la valeur de
+`provider` dans `config.yaml`.
+
+Chaque ligne affiche l'identifiant du test, son temps d'exécution et sa
+conformité. Le bilan indique le nombre de tests conformes, le temps total, les
+jetons disponibles et deux notes : conformité sur 100 et performance. La note
+de performance combine conformité (50 %), temps relatif à la référence (25 %)
+et jetons relatifs à la référence (25 %). Les appels isolent leurs sorties et
+leur historique de requêtes afin de mesurer chaque cas séparément. `--list`
+affiche les scénarios sans exécuter de requête IA; `--config`, `--suite`,
+`--expected` et `--timeout-seconds` permettent de modifier les chemins et le
+délai maximal par appel.

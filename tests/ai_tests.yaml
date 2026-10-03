@@ -1,0 +1,51 @@
+tests:
+  - {id: S001, mode: shorter, input: data/ai_suite.kml, parameters: {a_end: Site A, z_end: Site B}, description: Route courte Site A vers Site B}
+  - {id: S002, mode: shorter, input: data/ai_suite.kml, parameters: {a_end: Site B, z_end: Site A}, description: Route courte dans le sens inverse}
+  - {id: S003, mode: shorter, input: data/ai_suite.kml, parameters: {a_end: Site A, z_end: Site B, locale: en}, description: Route courte avec prompt anglais}
+  - {id: S004, mode: shorter, input: data/ai_suite.kml, parameters: {a_end: Site B, z_end: Site A, locale: en}, description: Route courte inverse avec prompt anglais}
+  - {id: S005, mode: shorter, input: data/ai_suite.kml, parameters: {a_end: Site A, z_end: Site B, build: true}, description: Construction KMZ de la route courte}
+  - {id: S006, mode: shorter, input: data/ai_suite.kml, parameters: {a_end: Site B, z_end: Site A, build: true}, description: Construction KMZ de la route courte inverse}
+  - {id: S007, mode: shorter, input: data/ai_suite.kml, parameters: {a_end: Site A, z_end: Site B, locale: en, build: true}, description: Route courte construite avec prompt anglais}
+  - {id: S008, mode: shorter, input: data/ai_suite.kml, parameters: {a_end: Site B, z_end: Site A, locale: en, build: true}, description: Route courte inverse construite avec prompt anglais}
+  - {id: C001, mode: compare, input: data/ai_suite.kml, parameters: {a_end: Site A, z_end: Site B}, description: Comparaison IA-Dijkstra de la route courte}
+  - {id: C002, mode: compare, input: data/ai_suite.kml, parameters: {a_end: Site B, z_end: Site A, locale: en}, description: Comparaison IA-Dijkstra de la route inverse}
+  - {id: D001, mode: diverse, input: data/ai_suite.kml, description: Sélection diverse sans exclusion}
+  - {id: D002, mode: diverse, input: data/ai_suite.kml, parameters: {locale: en}, description: Diversité avec prompt anglais}
+  - {id: D003, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable A, a_end: Site A, z_end: Site B}, description: Diversité en excluant Cable A}
+  - {id: D004, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable B, a_end: Site A, z_end: Site B}, description: Diversité en excluant Cable B}
+  - {id: D005, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable C, a_end: Site A, z_end: Site B}, description: Diversité en excluant Cable C}
+  - {id: D006, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable D, a_end: Site A, z_end: Site B}, description: Diversité en excluant Cable D}
+  - {id: D007, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable E, a_end: Site A, z_end: Site B}, description: Diversité en excluant Cable E}
+  - {id: D008, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable A, a_end: Site B, z_end: Site A}, description: Exclusion de câble sur trajet inverse}
+  - {id: D009, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable B, a_end: Site B, z_end: Site A, locale: en}, description: Exclusion et prompt anglais}
+  - {id: D010, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable C, a_end: Site B, z_end: Site A, build: true}, description: Construction de route diverse sans Cable C}
+  - {id: D011, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable D, a_end: Site B, z_end: Site A, build: true}, description: Construction de route diverse sans Cable D}
+  - {id: D012, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable E, a_end: Site B, z_end: Site A, locale: en, build: true}, description: Construction diverse avec prompt anglais}
+  - {id: D013, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable D, a_end: Site A, z_end: Site B, locale: fr}, description: Diversité sans Cable D avec prompt français}
+  - {id: D014, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable E, a_end: Site B, z_end: Site A, locale: en}, description: Diversité sans Cable E avec prompt anglais}
+  - {id: D015, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable A, a_end: Site A, z_end: Site B, locale: en}, description: Exclusion Cable A avec prompt anglais}
+  - {id: D016, mode: diverse, input: data/ai_suite.kml, parameters: {cable: Cable B, a_end: Site A, z_end: Site B, build: true}, description: Construction diverse sans Cable B}
+  - {id: R001, mode: ring, input: data/ai_suite.kml, parameters: {a_end: Site A, z_end: Site B}, description: Anneau Site A vers Site B}
+  - {id: R002, mode: ring, input: data/ai_suite.kml, parameters: {a_end: Site B, z_end: Site A}, description: Anneau dans le sens inverse}
+  - {id: R003, mode: ring, input: data/ai_suite.kml, parameters: {a_end: Site A, z_end: Site B, locale: en}, description: Anneau avec prompt anglais}
+  - {id: R004, mode: ring, input: data/ai_suite.kml, parameters: {a_end: Site B, z_end: Site A, locale: en}, description: Anneau inverse avec prompt anglais}
+  - {id: R005, mode: ring, input: data/ai_suite.kml, parameters: {a_end: Site A, z_end: Site B, build: true}, description: Construction KMZ de l’anneau}
+  - {id: R006, mode: ring, input: data/ai_suite.kml, parameters: {a_end: Site B, z_end: Site A, build: true}, description: Construction KMZ de l’anneau inverse}
+  - {id: R007, mode: ring, input: data/ai_suite.kml, parameters: {a_end: Site A, z_end: Site B, locale: en, build: true}, description: Anneau construit avec prompt anglais}
+  - {id: R008, mode: ring, input: data/ai_suite.kml, parameters: {a_end: Site B, z_end: Site A, locale: en, build: true}, description: Anneau inverse construit avec prompt anglais}
+  - {id: R009, mode: ring, input: data/ai_suite.kml, parameters: {a_end: Site A, z_end: Site B, locale: fr}, description: Vérification explicite du prompt français}
+  - {id: R010, mode: ring, input: data/ai_suite.kml, parameters: {a_end: Site B, z_end: Site A, locale: fr}, description: Anneau inverse avec prompt français}
+  - {id: A001, mode: analysis, input: data/analysis_01.kml, description: Analyse d’un point nommé en français}
+  - {id: A002, mode: analysis, input: data/analysis_01.kml, parameters: {locale: en}, description: Analyse d’un point nommé en anglais}
+  - {id: A003, mode: analysis, input: data/analysis_02.kml, description: Analyse d’une ligne raccordée en français}
+  - {id: A004, mode: analysis, input: data/analysis_02.kml, parameters: {locale: en}, description: Analyse d’une ligne raccordée en anglais}
+  - {id: A005, mode: analysis, input: data/analysis_03.kml, description: Analyse d’une géométrie fermée en français}
+  - {id: A006, mode: analysis, input: data/analysis_03.kml, parameters: {locale: en}, description: Analyse d’une géométrie fermée en anglais}
+  - {id: A007, mode: analysis, input: data/analysis_04.kml, description: Analyse d’une géométrie de ligne courte en français}
+  - {id: A008, mode: analysis, input: data/analysis_04.kml, parameters: {locale: en}, description: Analyse d’une géométrie de ligne courte en anglais}
+  - {id: A009, mode: analysis, input: data/analysis_05.kml, description: Analyse de plusieurs points en français}
+  - {id: A010, mode: analysis, input: data/analysis_05.kml, parameters: {locale: en}, description: Analyse de plusieurs points en anglais}
+  - {id: A011, mode: analysis, input: data/analysis_06.kml, description: Analyse d’une surface en français}
+  - {id: A012, mode: analysis, input: data/analysis_06.kml, parameters: {locale: en}, description: Analyse d’une surface en anglais}
+  - {id: A013, mode: analysis, input: data/analysis_07.kml, description: Analyse de géométries mixtes en français}
+  - {id: A014, mode: analysis, input: data/analysis_07.kml, parameters: {locale: en}, description: Analyse de géométries mixtes en anglais}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark><name>Site A</name><styleUrl>#homegardenbusiness</styleUrl><Point><coordinates>0,0,0</coordinates></Point></Placemark>
+    <Placemark><name>MH 1</name><Point><coordinates>0.01,0,0</coordinates></Point></Placemark>
+    <Placemark><name>Site B</name><styleUrl>#homegardenbusiness</styleUrl><Point><coordinates>0.02,0,0</coordinates></Point></Placemark>
+    <Placemark><name>Alt junction</name><Point><coordinates>0.01,0.01,0</coordinates></Point></Placemark>
+    <Placemark><name>Cable A</name><LineString><coordinates>0.001,0,0 0.009,0,0</coordinates></LineString></Placemark>
+    <Placemark><name>Cable B</name><LineString><coordinates>0.011,0,0 0.019,0,0</coordinates></LineString></Placemark>
+    <Placemark><name>Cable C</name><LineString><coordinates>0.001,0,0 0.01,0.01,0</coordinates></LineString></Placemark>
+    <Placemark><name>Cable D</name><LineString><coordinates>0.01,0.01,0 0.019,0,0</coordinates></LineString></Placemark>
+    <Placemark><name>Cable E</name><LineString><coordinates>0.001,0.001,0 0.006,-0.001,0 0.014,0.001,0 0.019,-0.001,0</coordinates></LineString></Placemark>
+  </Document>
+</kml>

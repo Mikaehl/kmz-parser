@@ -1,0 +1,455 @@
+results:
+  S001:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable A -> Cable B
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    duration_ms: 2099.162
+    total_tokens: 428
+  S002:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable B -> Cable A
+      A-END: Site B
+      Z-END: Site A
+      distance: 1.779
+    duration_ms: 2038.202
+    total_tokens: 442
+  S003:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable A -> Cable B
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    duration_ms: 13876.405
+    total_tokens: 1162
+  S004:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable B -> Cable A
+      A-END: Site B
+      Z-END: Site A
+      distance: 1.779
+    duration_ms: 6967.777
+    total_tokens: 720
+  S006:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable B -> Cable A
+      A-END: Site B
+      Z-END: Site A
+      distance: 1.779
+    duration_ms: 3634.214
+    total_tokens: 546
+  S007:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable A -> Cable B
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    duration_ms: 8171.655
+    total_tokens: 797
+  S008:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable B -> Cable A
+      A-END: Site B
+      Z-END: Site A
+      distance: 1.779
+    duration_ms: 12062.13
+    total_tokens: 1042
+  C001:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable A -> Cable B
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    duration_ms: 6109.436
+    total_tokens: 1017
+  C002:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable B -> Cable A
+      A-END: Site B
+      Z-END: Site A
+      distance: 1.779
+    duration_ms: 218396.772
+    total_tokens: 12251
+  D001:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable E
+      A-END: Site A
+      Z-END: Site B
+      distance: 2.115
+    - Route: Cable C
+      A-END: Site A
+      Z-END: Alt junction
+      distance: 1.496
+    duration_ms: 167740.948
+    total_tokens: 9854
+  D003:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable E
+      A-END: Site A
+      Z-END: Site B
+      distance: 2.115
+    duration_ms: 2170.088
+    total_tokens: 406
+  D004:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable E
+      A-END: Site A
+      Z-END: Site B
+      distance: 2.115
+    duration_ms: 1941.618
+    total_tokens: 421
+  D005:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable A -> Cable B
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    duration_ms: 2023.144
+    total_tokens: 420
+  D006:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable A -> Cable B
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    duration_ms: 1865.982
+    total_tokens: 417
+  D007:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable A -> Cable B
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    duration_ms: 2106.96
+    total_tokens: 426
+  D008:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable E
+      A-END: Site B
+      Z-END: Site A
+      distance: 2.115
+    duration_ms: 2064.345
+    total_tokens: 421
+  D009:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable E
+      A-END: Site B
+      Z-END: Site A
+      distance: 2.115
+    duration_ms: 1979.685
+    total_tokens: 385
+  D010:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable B -> Cable A
+      A-END: Site B
+      Z-END: Site A
+      distance: 1.779
+    duration_ms: 2030.277
+    total_tokens: 420
+  D011:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable B -> Cable A
+      A-END: Site B
+      Z-END: Site A
+      distance: 1.779
+    duration_ms: 2012.785
+    total_tokens: 431
+  D012:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable B -> Cable A
+      A-END: Site B
+      Z-END: Site A
+      distance: 1.779
+    duration_ms: 2712.031
+    total_tokens: 436
+  D013:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable A -> Cable B
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    duration_ms: 2020.718
+    total_tokens: 422
+  D014:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable B -> Cable A
+      A-END: Site B
+      Z-END: Site A
+      distance: 1.779
+    duration_ms: 3326.975
+    total_tokens: 482
+  D015:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable E
+      A-END: Site A
+      Z-END: Site B
+      distance: 2.115
+    duration_ms: 2213.702
+    total_tokens: 404
+  D016:
+    exit_code: 0
+    status: success
+    result:
+    - Route: Cable E
+      A-END: Site A
+      Z-END: Site B
+      distance: 2.115
+    duration_ms: 1672.232
+    total_tokens: 389
+  R001:
+    exit_code: 0
+    status: success
+    result:
+    - Route: 'Route 1 (IA): Cable A -> Cable B'
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    - Route: 'Route 2 (IA): Cable C -> Cable D'
+      A-END: Site A
+      Z-END: Site B
+      distance: 2.992
+    duration_ms: 14214.852
+    total_tokens: 1509
+  R002:
+    exit_code: 0
+    status: success
+    result:
+    - Route: 'Route 1 (IA): Cable B -> Cable A'
+      A-END: Site B
+      Z-END: Site A
+      distance: 1.779
+    - Route: 'Route 2 (IA): Cable D -> Cable C'
+      A-END: Site B
+      Z-END: Site A
+      distance: 2.992
+    duration_ms: 21223.31
+    total_tokens: 1944
+  R003:
+    exit_code: 0
+    status: success
+    result:
+    - Route: 'Route 1 (IA): Cable A -> Cable B'
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    - Route: 'Route 2 (IA): Cable C -> Cable D'
+      A-END: Site A
+      Z-END: Site B
+      distance: 2.992
+    duration_ms: 14282.876
+    total_tokens: 1465
+  R004:
+    exit_code: 0
+    status: success
+    result:
+    - Route: 'Route 1 (IA): Cable B -> Cable A'
+      A-END: Site B
+      Z-END: Site A
+      distance: 1.779
+    - Route: 'Route 2 (IA): Cable D -> Cable C'
+      A-END: Site B
+      Z-END: Site A
+      distance: 2.992
+    duration_ms: 82991.108
+    total_tokens: 5443
+  R005:
+    exit_code: 0
+    status: success
+    result:
+    - Route: 'Route 1 (IA): Cable A -> Cable B'
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    - Route: 'Route 2 (IA): Cable C -> Cable D'
+      A-END: Site A
+      Z-END: Site B
+      distance: 2.992
+    duration_ms: 250769.488
+    total_tokens: 13548
+  R007:
+    exit_code: 0
+    status: success
+    result:
+    - Route: 'Route 1 (IA): Cable A -> Cable B'
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    - Route: 'Route 2 (IA): Cable C -> Cable D'
+      A-END: Site A
+      Z-END: Site B
+      distance: 2.992
+    duration_ms: 57794.263
+    total_tokens: 4090
+  R009:
+    exit_code: 0
+    status: success
+    result:
+    - Route: 'Route 1 (IA): Cable A -> Cable B'
+      A-END: Site A
+      Z-END: Site B
+      distance: 1.779
+    - Route: 'Route 2 (IA): Cable C -> Cable D'
+      A-END: Site A
+      Z-END: Site B
+      distance: 2.992
+    duration_ms: 48934.909
+    total_tokens: 3628
+  A001:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 0
+      potential_solution_count: 0
+    duration_ms: 4880.455
+    total_tokens: 760
+  A002:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 0
+      potential_solution_count: 0
+    duration_ms: 3847.119
+    total_tokens: 638
+  A003:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 0
+      potential_solution_count: 0
+    duration_ms: 10053.573
+    total_tokens: 1115
+  A004:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 0
+      potential_solution_count: 0
+    duration_ms: 7345.764
+    total_tokens: 883
+  A005:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 1
+      potential_solution_count: 1
+    duration_ms: 16788.136
+    total_tokens: 1544
+  A006:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 1
+      potential_solution_count: 1
+    duration_ms: 12958.834
+    total_tokens: 1244
+  A007:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 0
+      potential_solution_count: 0
+    duration_ms: 6028.676
+    total_tokens: 863
+  A008:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 0
+      potential_solution_count: 0
+    duration_ms: 5761.244
+    total_tokens: 783
+  A009:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 0
+      potential_solution_count: 0
+    duration_ms: 6206.091
+    total_tokens: 891
+  A010:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 0
+      potential_solution_count: 0
+    duration_ms: 5751.837
+    total_tokens: 799
+  A011:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 0
+      potential_solution_count: 0
+    duration_ms: 38826.466
+    total_tokens: 2923
+  A012:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 0
+      potential_solution_count: 0
+    duration_ms: 29215.671
+    total_tokens: 2287
+  A013:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 1
+      potential_solution_count: 1
+    duration_ms: 19160.849
+    total_tokens: 1723
+  A014:
+    exit_code: 0
+    status: success
+    result:
+      inconsistency_count: 1
+      potential_solution_count: 1
+    duration_ms: 8503.383
+    total_tokens: 984

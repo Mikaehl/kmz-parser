@@ -1,0 +1,4 @@
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+  <Placemark id="MIXED-07A"><name>Point réseau</name><Point><coordinates>2.35,48.86,0</coordinates></Point></Placemark>
+  <Placemark id="MIXED-07B"><name>Tronçon réseau</name><LineString><coordinates>2.35,48.86,0 2.36,48.87,0 2.37,48.86,0</coordinates></LineString></Placemark>
+</Document></kml>

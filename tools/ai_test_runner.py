@@ -317,9 +317,14 @@ def run() -> int:
         help="Exécute les tests et initialise leurs résultats de référence.",
     )
     parser.add_argument(
+        "--test",
+        metavar="ID",
+        help="Exécute uniquement le test ayant cet identifiant.",
+    )
+    parser.add_argument(
         "--list",
         action="store_true",
-        help="Affiche les 50 tests sans lancer kmz-parser.",
+        help="Affiche les tests sans lancer kmz-parser.",
     )
     arguments = parser.parse_args()
     try:
@@ -327,6 +332,10 @@ def run() -> int:
         config_path = arguments.config.resolve()
         suite = _load_yaml(suite_path)
         cases = _validate_suite(suite)
+        if arguments.test is not None:
+            cases = [case for case in cases if case["id"] == arguments.test]
+            if not cases:
+                raise ValueError(f"Identifiant de test introuvable : {arguments.test}")
         if arguments.timeout_seconds < 1:
             raise ValueError("--timeout-seconds doit être supérieur à zéro.")
         if arguments.list:
@@ -339,8 +348,15 @@ def run() -> int:
         provider, model = _provider_details(config_path, arguments.use_openrouter)
         expected_path = arguments.expected.resolve()
         if arguments.init:
-            expected_results: dict[str, Any] = {}
-            _write_expected(expected_path, expected_results)
+            if arguments.test is not None and expected_path.is_file():
+                expected_data = _load_yaml(expected_path)
+                expected_results = expected_data.get("results", {})
+                if not isinstance(expected_results, dict):
+                    raise ValueError("Le fichier de références doit contenir un objet 'results'.")
+            else:
+                expected_results = {}
+                if arguments.test is None:
+                    _write_expected(expected_path, expected_results)
         else:
             expected_data = _load_yaml(expected_path)
             expected_results = expected_data.get("results", {})
@@ -454,7 +470,8 @@ def run() -> int:
             "(50 % conformité, 25 % temps vs référence, 25 % jetons vs référence)"
         )
     if arguments.init:
-        print(f"Références initialisées : {len(expected_results)}/{len(cases)}")
+            initialized = sum(case["id"] in expected_results for case in cases)
+            print(f"Références initialisées : {initialized}/{len(cases)}")
     return 1 if failed else 0
 
 

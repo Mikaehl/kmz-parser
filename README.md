@@ -65,6 +65,18 @@ Initialisez ou réinitialisez les résultats attendus avec :
 python tools/ai_test_runner.py --init
 ```
 
+Pour exécuter ou initialiser un seul scénario, précisez son identifiant avec
+`--test` :
+
+```powershell
+python tools/ai_test_runner.py --test S001
+python tools/ai_test_runner.py --init --test S001
+```
+
+L'initialisation ciblée met à jour la référence du scénario sélectionné sans
+effacer celles des autres scénarios. `--list --test S001` affiche ce scénario
+sans lancer kmz-parser.
+
 Lancez ensuite la suite et comparez les résultats :
 
 ```powershell

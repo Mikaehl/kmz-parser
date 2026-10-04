@@ -1,12 +1,16 @@
+import io
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from unittest.mock import patch
 from pathlib import Path
 
 import yaml
 
+import tools.ai_test_runner as ai_test_runner
 from includes.kml_parser import parse_kml_file, parse_kml_objects
 from includes.route_planner import find_shortest_route
 from tools.ai_test_runner import _case_arguments, _provider_details
@@ -103,6 +107,135 @@ class AiTestRunnerTests(unittest.TestCase):
 
         self.assertIn("--or", command)
         self.assertEqual(provider, "openrouter")
+
+    def test_test_option_runs_only_the_selected_case(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            suite_path = temporary_root / "suite.yaml"
+            expected_path = temporary_root / "expected.yaml"
+            config_path = temporary_root / "config.yaml"
+            cases = [
+                {"id": test_id, "mode": "shorter", "input": "input.kml"}
+                for test_id in ("S001", "S002")
+            ]
+            suite_path.write_text(yaml.safe_dump({"tests": cases}), encoding="utf-8")
+            expected_path.write_text(
+                yaml.safe_dump(
+                    {
+                        "results": {
+                            "S001": {"exit_code": 0, "status": "success", "result": "one"},
+                            "S002": {"exit_code": 0, "status": "success", "result": "two"},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config_path.write_text("{}", encoding="utf-8")
+
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "ai_test_runner.py",
+                        "--suite",
+                        str(suite_path),
+                        "--expected",
+                        str(expected_path),
+                        "--config",
+                        str(config_path),
+                        "--test",
+                        "S002",
+                    ],
+                ),
+                patch(
+                    "tools.ai_test_runner._provider_details",
+                    return_value=("ollama", "model"),
+                ),
+                patch(
+                    "tools.ai_test_runner._run_case",
+                    return_value={
+                        "exit_code": 0,
+                        "status": "success",
+                        "result": "two",
+                        "duration_ms": 1.0,
+                        "total_tokens": 1,
+                    },
+                ) as run_case,
+                redirect_stdout(io.StringIO()),
+            ):
+                exit_code = ai_test_runner.run()
+
+        self.assertEqual(exit_code, 0)
+        run_case.assert_called_once()
+        self.assertEqual(run_case.call_args.args[0]["id"], "S002")
+
+    def test_init_test_option_preserves_other_references(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            suite_path = temporary_root / "suite.yaml"
+            expected_path = temporary_root / "expected.yaml"
+            config_path = temporary_root / "config.yaml"
+            cases = [
+                {"id": test_id, "mode": "shorter", "input": "input.kml"}
+                for test_id in ("S001", "S002")
+            ]
+            suite_path.write_text(yaml.safe_dump({"tests": cases}), encoding="utf-8")
+            other_reference = {
+                "exit_code": 0,
+                "status": "success",
+                "result": "two",
+            }
+            expected_path.write_text(
+                yaml.safe_dump({"results": {"S002": other_reference}}),
+                encoding="utf-8",
+            )
+            config_path.write_text("{}", encoding="utf-8")
+
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "ai_test_runner.py",
+                        "--suite",
+                        str(suite_path),
+                        "--expected",
+                        str(expected_path),
+                        "--config",
+                        str(config_path),
+                        "--init",
+                        "--test",
+                        "S001",
+                    ],
+                ),
+                patch(
+                    "tools.ai_test_runner._provider_details",
+                    return_value=("ollama", "model"),
+                ),
+                patch(
+                    "tools.ai_test_runner._run_case",
+                    return_value={
+                        "exit_code": 0,
+                        "status": "success",
+                        "result": "one",
+                        "duration_ms": 1.0,
+                        "total_tokens": 1,
+                        "provider": "ollama",
+                        "model": "model",
+                    },
+                ) as run_case,
+                redirect_stdout(io.StringIO()),
+            ):
+                exit_code = ai_test_runner.run()
+
+            initialized = yaml.safe_load(expected_path.read_text(encoding="utf-8"))[
+                "results"
+            ]
+
+        self.assertEqual(exit_code, 0)
+        run_case.assert_called_once()
+        self.assertEqual(run_case.call_args.args[0]["id"], "S001")
+        self.assertEqual(initialized["S002"], other_reference)
+        self.assertEqual(initialized["S001"]["result"], "one")
 
 
 if __name__ == "__main__":

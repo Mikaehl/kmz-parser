@@ -9,7 +9,7 @@ closest:
 ollama:
   base_url: http://ollama.home:11434
   model: ornith-1.5:9b
-  timeout_seconds: 600
+  timeout_seconds: 1800
 openrouter:
   base_url: https://openrouter.ai/api/v1
   model1: qwen/qwen3.8-27b:free

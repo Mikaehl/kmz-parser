@@ -91,6 +91,46 @@ class RoutePlannerTests(unittest.TestCase):
         self.assertEqual(alternative.route_name, "Detour cable")
         self.assertNotIn(cable_a.route_name, alternative.route_name)
 
+    def test_dijkstra_can_exclude_segments_and_intermediate_points(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            kml_path = Path(temporary_directory) / "network.kml"
+            kml_path.write_text(SAMPLE_KML, encoding="utf-8")
+            spans = parse_kml_file(kml_path)
+
+        alternative = find_shortest_route(
+            spans,
+            "Point A",
+            "Point B",
+            excluded_span_ids=["cable-a-id"],
+            excluded_points=["Intermediate A"],
+            strict_exclusions=True,
+        )
+
+        self.assertEqual(alternative.route_name, "Detour cable")
+
+    def test_dijkstra_rejects_unknown_excluded_segment(self) -> None:
+        span = RouteCandidate("R001", "Cable", "Point A", "Point B", 1, [(0, 0), (1, 0)])
+
+        with self.assertRaisesRegex(RoutePlanningError, "Cable span 'missing' was not found"):
+            find_shortest_route(
+                [span],
+                "Point A",
+                "Point B",
+                excluded_span_ids=["missing"],
+                strict_exclusions=True,
+            )
+
+    def test_dijkstra_rejects_excluding_an_endpoint(self) -> None:
+        span = RouteCandidate("R001", "Cable", "Point A", "Point B", 1, [(0, 0), (1, 0)])
+
+        with self.assertRaisesRegex(RoutePlanningError, "cannot be excluded points"):
+            find_shortest_route(
+                [span],
+                "Point A",
+                "Point B",
+                excluded_points=["Point A"],
+            )
+
     def test_span_reference_excludes_all_segments_from_built_route_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             kml_path = Path(temporary_directory) / "network.kml"

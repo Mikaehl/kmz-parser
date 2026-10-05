@@ -37,19 +37,36 @@ compare:
     spans. Return route_id values in order from start to destination. Use each span at
     most once and do not invent identifiers.
 
+ai-route:
+  fr: >-
+    Choisis une route de référence entre A-END et Z-END en appelant l'outil Dijkstra.
+    Examine les segments et les points fournis. Tu peux demander plusieurs calculs en
+    excluant certains segments, certains points intermédiaires, ou les deux. Utilise
+    les résultats calculés par l'outil pour comparer les options et retourne comme
+    référence une route qui a réellement été calculée. N'invente aucune route.
+  en: >-
+    Choose a reference route between A-END and Z-END by calling the Dijkstra tool.
+    Review the supplied segments and points. You may request multiple calculations,
+    excluding selected segments, intermediate points, or both. Use the tool results
+    to compare options and return a route that was actually calculated. Do not invent
+    a route.
+
 ring:
   fr: >-
     Trouve deux itinéraires continus et aussi différents que possible entre A-END et
-    Z-END à partir des spans fournis. Chaque itinéraire doit être une séquence ordonnée
-    de spans contigus; les deux itinéraires ne doivent partager aucun span et ne doivent
-    pas se croiser géométriquement hors des sites communs A-END et Z-END. N'invente aucun
-    route_id. Le programme vérifiera la continuité et rejettera les routes invalides.
+    Z-END en utilisant l'outil Dijkstra. Pour chaque itinéraire, l'outil calcule le
+    chemin à partir des segments disponibles; tu peux demander plusieurs calculs en
+    excluant des segments, des points intermédiaires ou les deux. Choisis une route
+    effectivement calculée pour chaque étape. Le programme exclut les segments de la
+    première route et ceux qui la croisent avant de calculer la seconde, puis vérifie
+    la continuité et l'absence de croisements.
   en: >-
-    Find two continuous and as geographically diverse as possible routes between
-    A-END and Z-END from the supplied spans. Each route must be an ordered sequence of
-    contiguous spans; the two routes must not share spans or cross geometrically except
-    at the shared A-END and Z-END sites. Do not invent route_id values. The program
-    validates continuity and rejects invalid routes.
+    Find two continuous and geographically diverse routes between A-END and Z-END
+    using the Dijkstra tool. For each route, the tool calculates a path from the
+    available segments; you may request multiple calculations by excluding segments,
+    intermediate points, or both. Select a route actually calculated at each step.
+    The program removes the first route's segments and any segments crossing it before
+    calculating the second route, then validates continuity and crossings.
 
 diverse:
   fr: >-

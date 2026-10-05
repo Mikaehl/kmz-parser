@@ -7,6 +7,12 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 from includes.kml_parser import RouteCandidate
+from includes.route_planner import (
+    RoutePlanningError,
+    exclude_crossing_spans,
+    exclude_reference_spans,
+    find_shortest_route,
+)
 
 
 class ProviderConfigurationError(ValueError):
@@ -109,6 +115,332 @@ def build_ring_system_prompt(prompt_config: dict[str, Any], locale: str) -> str:
         "Return exactly two routes. Each route is an ordered sequence of route_id values "
         "from the supplied candidate list. Do not invent IDs."
     )
+
+
+def build_ai_ring_system_prompt(prompt_config: dict[str, Any], locale: str) -> str:
+    try:
+        common_prompt = prompt_config["common"][locale]
+        instructions = prompt_config["ring"][locale]
+    except (KeyError, TypeError) as error:
+        raise ValueError(f"Missing common or ring prompt for locale '{locale}'") from error
+    return (
+        f"{common_prompt}\n\n{instructions}\n"
+        "The program requests the two ring legs in separate steps. For each step, use "
+        "the find_dijkstra_route tool to calculate a continuous route, and you may call "
+        "it again with different excluded segments and/or points. In the second step, "
+        "the first route's segments and any segments crossing its geometry are already "
+        "removed. Select exactly one route returned by the tool as the route for the "
+        "current step. Return valid JSON only, with this exact shape: "
+        '{"route_reference":"<route_id returned by the tool>"}. '
+        "Do not invent a route reference."
+    )
+
+
+def build_ai_route_system_prompt(prompt_config: dict[str, Any], locale: str) -> str:
+    try:
+        common_prompt = prompt_config["common"][locale]
+        instructions = prompt_config["ai-route"][locale]
+    except (KeyError, TypeError) as error:
+        raise ValueError(f"Missing common or AI route prompt for locale '{locale}'") from error
+    return (
+        f"{common_prompt}\n\n{instructions}\n"
+        "Use the find_dijkstra_route tool to calculate candidate routes. You may call it "
+        "again with different excluded segments and/or points. Select exactly one route "
+        "returned by the tool as your reference. Return valid JSON only, with this exact "
+        'shape: {"route_reference":"<route_id returned by the tool>"}. '
+        "Do not invent a route reference."
+    )
+
+
+def select_ai_route(
+    provider: str,
+    base_url: str,
+    model: str,
+    timeout_seconds: int,
+    locale: str,
+    prompt_config: dict[str, Any],
+    candidates: list[RouteCandidate],
+    a_end: str,
+    z_end: str,
+    api_key: str | None = None,
+    site_url: str = "",
+    app_name: str = "",
+    max_retries: int = 5,
+    retry_delay_seconds: float = 2,
+    max_dijkstra_tool_calls: int = 8,
+    system_prompt: str | None = None,
+    request_metadata: dict[str, Any] | None = None,
+) -> RouteCandidate:
+    if max_retries < 0:
+        raise ValueError("max_retries cannot be negative")
+    if max_dijkstra_tool_calls < 1:
+        raise ValueError("max_dijkstra_tool_calls must be a positive integer")
+    instructions = system_prompt or build_ai_route_system_prompt(prompt_config, locale)
+    available_segments = [
+        {
+            "span_id": span.source_id or span.route_id,
+            "route_id": span.route_id,
+            "name": span.route_name,
+            "a_end": span.a_end,
+            "z_end": span.z_end,
+        }
+        for span in candidates
+    ]
+    available_points = sorted(
+        {
+            endpoint.strip()
+            for span in candidates
+            for endpoint in (span.a_end, span.z_end)
+        },
+        key=str.casefold,
+    )
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": instructions},
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "a_end": a_end,
+                    "z_end": z_end,
+                    "segments": available_segments,
+                    "points": available_points,
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    tool_description = {
+        "name": "find_dijkstra_route",
+        "description": (
+            "Calculate the shortest cable route between the requested endpoints. "
+            "Exclude any listed cable segments (by span ID, route ID, or exact name) "
+            "and/or intermediate points (by exact point name)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "exclude_segments": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Cable span IDs, route IDs, or exact names to avoid.",
+                },
+                "exclude_points": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Intermediate point names that the route must not pass through.",
+                },
+            },
+            "additionalProperties": False,
+        },
+    }
+    tools = [{"type": "function", "function": tool_description}]
+    headers = {"Content-Type": "application/json"}
+    if provider == "ollama":
+        endpoint = f"{base_url.rstrip('/')}/api/chat"
+        headers["Accept"] = "application/json"
+    elif provider == "openrouter":
+        if not api_key:
+            raise ProviderConfigurationError("OpenRouter API key is required")
+        endpoint = f"{base_url.rstrip('/')}/chat/completions"
+        headers["Authorization"] = f"Bearer {api_key}"
+        if site_url:
+            headers["HTTP-Referer"] = site_url
+        if app_name:
+            headers["X-Title"] = app_name
+    else:
+        raise ValueError(f"Unsupported provider: {provider}")
+
+    discovered_routes: dict[str, RouteCandidate] = {}
+    prompt_tokens_total = 0
+    completion_tokens_total = 0
+    prompt_tokens_known = True
+    completion_tokens_known = True
+    tool_call_count = 0
+    while True:
+        if request_metadata is not None:
+            request_metadata.update(
+                {
+                    "prompt": json.dumps(messages, ensure_ascii=False),
+                    "provider": provider,
+                    "model": model,
+                }
+            )
+        request_body: dict[str, Any] = {
+            "model": model,
+            "stream": False,
+            "messages": messages,
+            "tools": tools,
+        }
+        if provider == "openrouter":
+            request_body["tool_choice"] = "auto"
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(request_body).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        retry_index = 0
+        try:
+            while True:
+                try:
+                    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                        api_response = json.loads(response.read().decode("utf-8"))
+                    break
+                except urllib.error.HTTPError as error:
+                    if provider != "openrouter" or error.code != 429 or retry_index >= max_retries:
+                        raise RuntimeError(_describe_http_error(error)) from error
+                    delay = _retry_delay(error, retry_index, retry_delay_seconds)
+                    error.close()
+                    time.sleep(delay)
+                    retry_index += 1
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+            raise RuntimeError(str(error)) from error
+
+        if not isinstance(api_response, dict):
+            raise ValueError("AI provider returned an invalid tool response")
+        if provider == "ollama":
+            assistant_message = api_response.get("message")
+            prompt_count = _token_count(api_response.get("prompt_eval_count"))
+            completion_count = _token_count(api_response.get("eval_count"))
+        else:
+            choices = api_response.get("choices")
+            assistant_message = (
+                choices[0].get("message")
+                if isinstance(choices, list) and choices and isinstance(choices[0], dict)
+                else None
+            )
+            usage = api_response.get("usage")
+            usage = usage if isinstance(usage, dict) else {}
+            prompt_count = _token_count(usage.get("prompt_tokens"))
+            completion_count = _token_count(usage.get("completion_tokens"))
+        if prompt_count is None:
+            prompt_tokens_known = False
+        else:
+            prompt_tokens_total += prompt_count
+        if completion_count is None:
+            completion_tokens_known = False
+        else:
+            completion_tokens_total += completion_count
+        if request_metadata is not None:
+            request_metadata["model"] = api_response.get("model") or model
+            request_metadata["prompt_tokens"] = (
+                prompt_tokens_total if prompt_tokens_known else None
+            )
+            request_metadata["completion_tokens"] = (
+                completion_tokens_total if completion_tokens_known else None
+            )
+            request_metadata["total_tokens"] = (
+                prompt_tokens_total + completion_tokens_total
+                if prompt_tokens_known and completion_tokens_known
+                else None
+            )
+        if not isinstance(assistant_message, dict):
+            raise ValueError("AI provider response did not contain an assistant message")
+        tool_calls = assistant_message.get("tool_calls")
+        if tool_calls:
+            if not isinstance(tool_calls, list):
+                raise ValueError("AI provider returned invalid tool calls")
+            messages.append({"role": "assistant", **assistant_message})
+            for tool_call in tool_calls:
+                if not isinstance(tool_call, dict):
+                    raise ValueError("AI provider returned an invalid tool call")
+                function = tool_call.get("function")
+                if not isinstance(function, dict) or function.get("name") != "find_dijkstra_route":
+                    raise ValueError("AI provider requested an unsupported tool")
+                if tool_call_count >= max_dijkstra_tool_calls:
+                    raise ValueError(
+                        "AI exceeded the maximum of "
+                        f"{max_dijkstra_tool_calls} Dijkstra tool calls"
+                    )
+                tool_call_count += 1
+                if request_metadata is not None:
+                    request_metadata["dijkstra_tool_calls"] = tool_call_count
+                arguments = function.get("arguments", {})
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except json.JSONDecodeError as error:
+                        raise ValueError("AI returned invalid Dijkstra tool arguments") from error
+                if not isinstance(arguments, dict):
+                    raise ValueError("AI returned invalid Dijkstra tool arguments")
+                unknown_arguments = set(arguments) - {"exclude_segments", "exclude_points"}
+                if unknown_arguments:
+                    raise ValueError(
+                        "AI returned unsupported Dijkstra tool argument(s): "
+                        + ", ".join(sorted(str(key) for key in unknown_arguments))
+                    )
+
+                def normalize_exclusions(argument_name: str) -> list[str]:
+                    values = arguments.get(argument_name)
+                    if values is None:
+                        return []
+                    if isinstance(values, str):
+                        return [values]
+                    if isinstance(values, list) and all(isinstance(item, str) for item in values):
+                        return values
+                    raise ValueError(
+                        f"AI returned invalid '{argument_name}' Dijkstra tool argument; "
+                        "expected a string, an array of strings, or null"
+                    )
+
+                excluded_segments = normalize_exclusions("exclude_segments")
+                excluded_points = normalize_exclusions("exclude_points")
+                try:
+                    route = find_shortest_route(
+                        candidates,
+                        a_end,
+                        z_end,
+                        excluded_span_ids=excluded_segments,
+                        excluded_points=excluded_points,
+                        strict_exclusions=True,
+                    )
+                    discovered_routes[route.route_id] = route
+                    tool_result = {
+                        "route_reference": route.route_id,
+                        "route_id": route.route_id,
+                        "route": route.route_name,
+                        "a_end": route.a_end,
+                        "z_end": route.z_end,
+                        "distance_km": round(route.distance_km, 3),
+                        "span_ids": route.span_ids,
+                        "span_names": route.span_names,
+                    }
+                except RoutePlanningError as error:
+                    tool_result = {"error": str(error)}
+                if provider == "ollama":
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_name": "find_dijkstra_route",
+                            "content": json.dumps(tool_result, ensure_ascii=False),
+                        }
+                    )
+                else:
+                    call_id = tool_call.get("id")
+                    if not isinstance(call_id, str) or not call_id:
+                        raise ValueError("OpenRouter tool call did not contain an ID")
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": json.dumps(tool_result, ensure_ascii=False),
+                        }
+                    )
+            continue
+
+        content = assistant_message.get("content")
+        if not isinstance(content, str):
+            raise ValueError("AI response did not select a Dijkstra route reference")
+        try:
+            selection = json.loads(content)
+        except json.JSONDecodeError as error:
+            raise ValueError("AI returned an invalid route reference") from error
+        route_reference = (
+            selection.get("route_reference") if isinstance(selection, dict) else None
+        )
+        if not isinstance(route_reference, str) or route_reference not in discovered_routes:
+            raise ValueError("AI selected an unknown or uncalculated route reference")
+        return discovered_routes[route_reference]
 
 
 def select_ring_routes(
@@ -242,6 +574,122 @@ def select_ring_routes(
             raise ValueError("AI selected unknown cable span identifiers")
         selected_routes.append([candidate_by_id[route_id] for route_id in route_ids])
     return selected_routes
+
+
+def select_ai_ring_routes(
+    provider: str,
+    base_url: str,
+    model: str,
+    timeout_seconds: int,
+    locale: str,
+    prompt_config: dict[str, Any],
+    candidates: list[RouteCandidate],
+    a_end: str,
+    z_end: str,
+    api_key: str | None = None,
+    site_url: str = "",
+    app_name: str = "",
+    max_retries: int = 5,
+    retry_delay_seconds: float = 2,
+    max_dijkstra_tool_calls: int = 8,
+    system_prompt: str | None = None,
+    request_metadata: dict[str, Any] | None = None,
+) -> list[list[RouteCandidate]]:
+    if max_retries < 0:
+        raise ValueError("max_retries cannot be negative")
+    if max_dijkstra_tool_calls < 1:
+        raise ValueError("max_dijkstra_tool_calls must be a positive integer")
+    instructions = system_prompt or build_ai_ring_system_prompt(prompt_config, locale)
+    selected_routes: list[RouteCandidate] = []
+    route_candidates = candidates
+    prompt_tokens_total = 0
+    completion_tokens_total = 0
+    prompt_tokens_known = True
+    completion_tokens_known = True
+    dijkstra_tool_calls = 0
+
+    for route_index in range(2):
+        remaining_tool_calls = max_dijkstra_tool_calls - dijkstra_tool_calls
+        if remaining_tool_calls < 1:
+            raise ValueError(
+                "AI exceeded the maximum of "
+                f"{max_dijkstra_tool_calls} Dijkstra tool calls"
+            )
+        leg_metadata: dict[str, Any] = {}
+        selected_route = select_ai_route(
+            provider=provider,
+            base_url=base_url,
+            model=model,
+            timeout_seconds=timeout_seconds,
+            locale=locale,
+            prompt_config=prompt_config,
+            candidates=route_candidates,
+            a_end=a_end,
+            z_end=z_end,
+            api_key=api_key,
+            site_url=site_url,
+            app_name=app_name,
+            max_retries=max_retries,
+            retry_delay_seconds=retry_delay_seconds,
+            max_dijkstra_tool_calls=remaining_tool_calls,
+            system_prompt=instructions,
+            request_metadata=leg_metadata,
+        )
+        selected_routes.append(selected_route)
+        dijkstra_tool_calls += int(leg_metadata.get("dijkstra_tool_calls", 0))
+
+        prompt_tokens = leg_metadata.get("prompt_tokens")
+        completion_tokens = leg_metadata.get("completion_tokens")
+        if not isinstance(prompt_tokens, int):
+            prompt_tokens_known = False
+        else:
+            prompt_tokens_total += prompt_tokens
+        if not isinstance(completion_tokens, int):
+            completion_tokens_known = False
+        else:
+            completion_tokens_total += completion_tokens
+
+        if route_index == 0:
+            route_candidates = exclude_reference_spans(
+                route_candidates,
+                selected_route.span_ids,
+            )
+            route_candidates = exclude_crossing_spans(route_candidates, selected_route)
+            if not route_candidates:
+                raise RoutePlanningError(
+                    "No cable spans remain for a non-crossing second ring route"
+                )
+
+        if request_metadata is not None:
+            request_metadata.update(leg_metadata)
+            request_metadata["dijkstra_tool_calls"] = dijkstra_tool_calls
+            request_metadata["prompt_tokens"] = (
+                prompt_tokens_total if prompt_tokens_known else None
+            )
+            request_metadata["completion_tokens"] = (
+                completion_tokens_total if completion_tokens_known else None
+            )
+            request_metadata["total_tokens"] = (
+                prompt_tokens_total + completion_tokens_total
+                if prompt_tokens_known and completion_tokens_known
+                else None
+            )
+
+    candidate_by_id = {
+        (candidate.source_id or candidate.route_id).strip().casefold(): candidate
+        for candidate in candidates
+    }
+    selected_span_routes: list[list[RouteCandidate]] = []
+    for route in selected_routes:
+        try:
+            selected_span_routes.append(
+                [candidate_by_id[span_id.strip().casefold()] for span_id in route.span_ids]
+            )
+        except KeyError as error:
+            raise ValueError(
+                f"Dijkstra ring route refers to unknown span '{error.args[0]}'"
+            ) from error
+    return selected_span_routes
 
 
 def build_consistency_prompt(prompt_config: dict[str, Any], locale: str) -> str:

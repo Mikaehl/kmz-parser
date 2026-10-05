@@ -10,6 +10,9 @@ DEFAULT_CONFIG = {
     "network": {
         "endpoint_match_km": 0.5,
     },
+    "route_planning": {
+        "max_dijkstra_tool_calls": 8,
+    },
     "closest": {
         "geocoder_url": "https://nominatim.openstreetmap.org/search",
         "user_agent": "KMZRouteParser/1.0",
@@ -69,6 +72,13 @@ def load_settings(config_path: Path) -> tuple[dict[str, Any], Path]:
     if not math.isfinite(endpoint_match_km) or endpoint_match_km < 0:
         raise ValueError("network.endpoint_match_km must be a finite non-negative number")
     settings["network"]["endpoint_match_km"] = endpoint_match_km
+    max_dijkstra_tool_calls = settings["route_planning"]["max_dijkstra_tool_calls"]
+    if (
+        isinstance(max_dijkstra_tool_calls, bool)
+        or not isinstance(max_dijkstra_tool_calls, int)
+        or max_dijkstra_tool_calls < 1
+    ):
+        raise ValueError("route_planning.max_dijkstra_tool_calls must be a positive integer")
     closest_max_distance_km = float(settings["closest"]["max_distance_km"])
     if not math.isfinite(closest_max_distance_km) or closest_max_distance_km < 0:
         raise ValueError("closest.max_distance_km must be a finite non-negative number")

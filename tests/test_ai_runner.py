@@ -13,7 +13,7 @@ import yaml
 import tools.ai_test_runner as ai_test_runner
 from includes.kml_parser import parse_kml_file, parse_kml_objects
 from includes.route_planner import find_shortest_route
-from tools.ai_test_runner import _case_arguments, _provider_details
+from tools.ai_test_runner import _case_arguments, _provider_details, _validate_suite
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -59,7 +59,7 @@ class AiTestRunnerTests(unittest.TestCase):
         route_cases = [
             case
             for case in suite["tests"]
-            if case["mode"] in {"shorter", "compare", "ring"}
+            if case["mode"] in {"shorter", "ai-route", "compare", "ring"}
             or case.get("parameters", {}).get("cable")
         ]
         candidates = parse_kml_file(suite_path.parent / "data" / "ai_suite.kml")
@@ -107,6 +107,22 @@ class AiTestRunnerTests(unittest.TestCase):
 
         self.assertIn("--or", command)
         self.assertEqual(provider, "openrouter")
+
+    def test_ai_route_is_accepted_by_the_ai_test_runner(self) -> None:
+        cases = _validate_suite(
+            {
+                "tests": [
+                    {
+                        "id": "AI001",
+                        "mode": "ai-route",
+                        "input": "network.kml",
+                        "parameters": {"a_end": "Site A", "z_end": "Site B"},
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(cases[0]["mode"], "ai-route")
 
     def test_test_option_runs_only_the_selected_case(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

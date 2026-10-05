@@ -20,7 +20,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from includes.configuration import load_settings
 
 
-MODES = {"shorter", "compare", "diverse", "ring", "analysis"}
+MODES = {"shorter", "ai-route", "compare", "diverse", "ring", "analysis"}
 PARAMETER_FLAGS = {
     "a_end": "--a-end",
     "z_end": "--z-end",

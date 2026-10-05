@@ -13,8 +13,9 @@ from includes.kml_parser import RouteCandidate
 from includes.ollama_client import (
     check_kml_consistency,
     list_ollama_models,
-    select_ring_routes,
     select_routes,
+    select_ai_ring_routes,
+    select_ai_route,
 )
 
 
@@ -60,6 +61,212 @@ class OllamaClientTests(unittest.TestCase):
         )
 
         self.assertEqual([route.route_id for route in selected], ["R002"])
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_ai_route_uses_dijkstra_tool_result_as_its_reference(
+        self, mock_urlopen: object
+    ) -> None:
+        tool_response = {
+            "message": {
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "find_dijkstra_route",
+                            "arguments": {"exclude_segments": ["R002"]},
+                        }
+                    }
+                ]
+            },
+            "prompt_eval_count": 10,
+            "eval_count": 3,
+        }
+        final_response = {
+            "message": {"content": json.dumps({"route_reference": "R001"})},
+            "prompt_eval_count": 14,
+            "eval_count": 2,
+        }
+        mock_urlopen.side_effect = [
+            io.BytesIO(json.dumps(tool_response).encode("utf-8")),
+            io.BytesIO(json.dumps(final_response).encode("utf-8")),
+        ]
+        request_metadata: dict[str, object] = {}
+
+        selected = select_ai_route(
+            provider="ollama",
+            base_url="http://localhost:11434",
+            model="llama3.1",
+            timeout_seconds=10,
+            locale="fr",
+            prompt_config={
+                "common": {"fr": "Réseau"},
+                "ai-route": {"fr": "Choisis une route"},
+            },
+            candidates=self.candidates,
+            a_end="A",
+            z_end="B",
+            request_metadata=request_metadata,
+        )
+
+        first_request = json.loads(mock_urlopen.call_args_list[0].args[0].data)
+        second_request = json.loads(mock_urlopen.call_args_list[1].args[0].data)
+        self.assertEqual(selected.route_id, "R001")
+        self.assertEqual(first_request["tools"][0]["function"]["name"], "find_dijkstra_route")
+        self.assertEqual(second_request["messages"][-1]["role"], "tool")
+        tool_result = json.loads(second_request["messages"][-1]["content"])
+        self.assertEqual(tool_result["route_reference"], "R001")
+        self.assertEqual(request_metadata["prompt_tokens"], 24)
+        self.assertEqual(request_metadata["completion_tokens"], 5)
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_ai_route_accepts_null_and_single_string_exclusions(
+        self, mock_urlopen: object
+    ) -> None:
+        tool_response = {
+            "message": {
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "find_dijkstra_route",
+                            "arguments": {
+                                "exclude_segments": "R002",
+                                "exclude_points": None,
+                            },
+                        }
+                    }
+                ]
+            }
+        }
+        final_response = {
+            "message": {"content": json.dumps({"route_reference": "R001"})}
+        }
+        mock_urlopen.side_effect = [
+            io.BytesIO(json.dumps(tool_response).encode("utf-8")),
+            io.BytesIO(json.dumps(final_response).encode("utf-8")),
+        ]
+
+        selected = select_ai_route(
+            provider="ollama",
+            base_url="http://localhost:11434",
+            model="llama3.1",
+            timeout_seconds=10,
+            locale="fr",
+            prompt_config={
+                "common": {"fr": "Réseau"},
+                "ai-route": {"fr": "Choisis une route"},
+            },
+            candidates=self.candidates,
+            a_end="A",
+            z_end="B",
+        )
+
+        self.assertEqual(selected.route_id, "R001")
+        second_request = json.loads(mock_urlopen.call_args_list[1].args[0].data)
+        tool_result = json.loads(second_request["messages"][-1]["content"])
+        self.assertEqual(tool_result["route_reference"], "R001")
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_ai_route_enforces_configured_dijkstra_tool_call_limit(
+        self, mock_urlopen: object
+    ) -> None:
+        tool_response = {
+            "message": {
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "find_dijkstra_route",
+                            "arguments": {},
+                        }
+                    },
+                    {
+                        "function": {
+                            "name": "find_dijkstra_route",
+                            "arguments": {},
+                        }
+                    },
+                ]
+            }
+        }
+        mock_urlopen.return_value = io.BytesIO(json.dumps(tool_response).encode("utf-8"))
+
+        with self.assertRaisesRegex(ValueError, "maximum of 1 Dijkstra tool calls"):
+            select_ai_route(
+                provider="ollama",
+                base_url="http://localhost:11434",
+                model="llama3.1",
+                timeout_seconds=10,
+                locale="fr",
+                prompt_config={
+                    "common": {"fr": "Réseau"},
+                    "ai-route": {"fr": "Choisis une route"},
+                },
+                candidates=self.candidates,
+                a_end="A",
+                z_end="B",
+                max_dijkstra_tool_calls=1,
+            )
+
+        mock_urlopen.assert_called_once()
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_ai_route_supports_openrouter_tool_calls(self, mock_urlopen: object) -> None:
+        tool_response = {
+            "model": "openrouter-model",
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call-1",
+                                "type": "function",
+                                "function": {
+                                    "name": "find_dijkstra_route",
+                                    "arguments": '{"exclude_segments":[]}',
+                                },
+                            }
+                        ]
+                    }
+                }
+            ],
+        }
+        final_response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps({"route_reference": "R001+R002"})
+                    }
+                }
+            ]
+        }
+        mock_urlopen.side_effect = [
+            io.BytesIO(json.dumps(tool_response).encode("utf-8")),
+            io.BytesIO(json.dumps(final_response).encode("utf-8")),
+        ]
+        candidates = [
+            RouteCandidate("R001", "Cable A", "A", "C", 1, [(0, 0), (1, 0)]),
+            RouteCandidate("R002", "Cable B", "C", "B", 1, [(1, 0), (2, 0)]),
+        ]
+
+        selected = select_ai_route(
+            provider="openrouter",
+            base_url="https://openrouter.example/api/v1",
+            model="test-model",
+            timeout_seconds=10,
+            locale="fr",
+            prompt_config={
+                "common": {"fr": "Réseau"},
+                "ai-route": {"fr": "Choisis une route"},
+            },
+            candidates=candidates,
+            a_end="A",
+            z_end="B",
+            api_key="test-key",
+        )
+
+        first_request = mock_urlopen.call_args_list[0].args[0]
+        second_request = json.loads(mock_urlopen.call_args_list[1].args[0].data)
+        self.assertEqual(selected.route_id, "R001+R002")
+        self.assertEqual(first_request.get_header("Authorization"), "Bearer test-key")
+        self.assertEqual(second_request["messages"][-1]["tool_call_id"], "call-1")
 
     @patch("includes.ollama_client.urllib.request.urlopen")
     def test_ollama_request_metadata_captures_prompt_and_available_tokens(
@@ -425,31 +632,63 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual(models, ["llama3.1:latest", "qwen2.5:7b"])
 
     @patch("includes.ollama_client.urllib.request.urlopen")
-    def test_ring_ai_returns_two_ordered_routes(self, mock_urlopen: object) -> None:
-        mock_urlopen.return_value = io.BytesIO(
-            json.dumps(
-                {
-                    "message": {
-                        "content": json.dumps(
-                            {"routes": [{"route_ids": ["R001", "R002"]}, {"route_ids": ["R003"]}]}
-                        )
+    def test_ring_ai_uses_dijkstra_tool_for_two_non_crossing_routes(
+        self, mock_urlopen: object
+    ) -> None:
+        def tool_call() -> io.BytesIO:
+            return io.BytesIO(
+                json.dumps(
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "find_dijkstra_route",
+                                        "arguments": {},
+                                    }
+                                }
+                            ]
+                        }
                     }
-                }
-            ).encode("utf-8")
-        )
+                ).encode("utf-8")
+            )
+
+        def route_choice(route_reference: str) -> io.BytesIO:
+            return io.BytesIO(
+                json.dumps(
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {"route_reference": route_reference}
+                            )
+                        }
+                    }
+                ).encode("utf-8")
+            )
+
         candidates = [
             RouteCandidate("R001", "Cable 1", "A", "J", 1, [(0, 0), (1, 0)]),
             RouteCandidate("R002", "Cable 2", "J", "B", 1, [(1, 0), (2, 0)]),
-            RouteCandidate("R003", "Cable 3", "A", "B", 3, [(0, 0), (2, 0)]),
+            RouteCandidate("R003", "Cable 3", "A", "K", 2, [(0, 0), (1, 1)]),
+            RouteCandidate("R004", "Cable 4", "K", "B", 2, [(1, 1), (2, 0)]),
+        ]
+        mock_urlopen.side_effect = [
+            tool_call(),
+            route_choice("R001+R002"),
+            tool_call(),
+            route_choice("R003+R004"),
         ]
 
-        routes = select_ring_routes(
+        routes = select_ai_ring_routes(
             provider="ollama",
             base_url="http://localhost:11434",
             model="llama3.1",
             timeout_seconds=10,
             locale="fr",
-            prompt_config=self.prompts,
+            prompt_config={
+                **self.prompts,
+                "common": {"fr": "Définition du réseau"},
+            },
             candidates=candidates,
             a_end="A",
             z_end="B",
@@ -457,8 +696,59 @@ class OllamaClientTests(unittest.TestCase):
 
         self.assertEqual(
             [[route.route_id for route in path] for path in routes],
-            [["R001", "R002"], ["R003"]],
+            [["R001", "R002"], ["R003", "R004"]],
         )
+        second_leg_request = json.loads(mock_urlopen.call_args_list[2].args[0].data)
+        second_leg_segments = json.loads(second_leg_request["messages"][1]["content"])[
+            "segments"
+        ]
+        self.assertEqual(
+            [segment["route_id"] for segment in second_leg_segments],
+            ["R003", "R004"],
+        )
+
+    @patch("includes.ollama_client.select_ai_route")
+    def test_ring_ai_enforces_tool_call_limit_across_both_routes(
+        self, mock_select_ai_route: object
+    ) -> None:
+        candidates = [
+            RouteCandidate("R001", "Cable 1", "A", "J", 1, [(0, 0), (1, 0)]),
+            RouteCandidate("R002", "Cable 2", "J", "B", 1, [(1, 0), (2, 0)]),
+            RouteCandidate("R003", "Cable 3", "A", "K", 2, [(0, 0), (1, 1)]),
+            RouteCandidate("R004", "Cable 4", "K", "B", 2, [(1, 1), (2, 0)]),
+        ]
+        first_route = RouteCandidate(
+            "R001+R002",
+            "Cable 1 -> Cable 2",
+            "A",
+            "B",
+            2,
+            [(0, 0), (1, 0), (2, 0)],
+            segments=[[(0, 0), (1, 0)], [(1, 0), (2, 0)]],
+            span_ids=["R001", "R002"],
+        )
+
+        def select_once(**kwargs: object) -> RouteCandidate:
+            kwargs["request_metadata"]["dijkstra_tool_calls"] = 1
+            return first_route
+
+        mock_select_ai_route.side_effect = select_once
+
+        with self.assertRaisesRegex(ValueError, "maximum of 1 Dijkstra tool calls"):
+            select_ai_ring_routes(
+                provider="ollama",
+                base_url="http://localhost:11434",
+                model="llama3.1",
+                timeout_seconds=10,
+                locale="fr",
+                prompt_config=self.prompts,
+                candidates=candidates,
+                a_end="A",
+                z_end="B",
+                max_dijkstra_tool_calls=1,
+            )
+
+        mock_select_ai_route.assert_called_once()
 
     def test_reads_openrouter_api_key_from_config_directory_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

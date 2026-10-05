@@ -64,7 +64,7 @@ class RingCliTests(unittest.TestCase):
 
             with (
                 patch("includes.cli.configure_logging", return_value=(logger, Mock())),
-                patch("includes.cli.select_ring_routes", side_effect=select_ring),
+                patch("includes.cli.select_ai_ring_routes", side_effect=select_ring),
                 patch("includes.cli.find_shortest_route") as find_shortest_route,
                 redirect_stdout(io.StringIO()),
             ):
@@ -122,7 +122,7 @@ class RingCliTests(unittest.TestCase):
             with (
                 patch("includes.cli.configure_logging", return_value=(logger, Mock())),
                 patch(
-                    "includes.cli.select_ring_routes",
+                    "includes.cli.select_ai_ring_routes",
                     side_effect=lambda **kwargs: [[kwargs["candidates"][0]], [kwargs["candidates"][0]]],
                 ) as select_ring,
                 patch("includes.cli.find_shortest_route") as find_shortest_route,

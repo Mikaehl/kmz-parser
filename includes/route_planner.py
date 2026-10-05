@@ -129,7 +129,10 @@ def find_shortest_route(
     z_end: str,
     excluded_span_id: str | None = None,
     excluded_span_ids: list[str] | None = None,
+    excluded_points: list[str] | None = None,
+    strict_exclusions: bool = False,
 ) -> RouteCandidate:
+    all_spans = spans
     exclusion_keys = list(excluded_span_ids or [])
     if excluded_span_id is not None:
         exclusion_keys.append(excluded_span_id)
@@ -147,7 +150,7 @@ def find_shortest_route(
         matching_spans = exact_matches or [
             span for span in spans if cable_key == span.route_name.strip().casefold()
         ]
-        if not matching_spans and identifier == excluded_span_id:
+        if not matching_spans and (strict_exclusions or identifier == excluded_span_id):
             raise RoutePlanningError(f"Cable span '{identifier}' was not found in the KML")
         if not matching_spans:
             continue
@@ -158,12 +161,21 @@ def find_shortest_route(
         spans = [span for span in spans if id(span) not in excluded_spans]
 
     point_names: dict[str, str] = {}
-    for span in spans:
+    for span in all_spans:
         for endpoint in (span.a_end, span.z_end):
             point_names.setdefault(endpoint.strip().casefold(), endpoint.strip())
 
     start_key = a_end.strip().casefold()
     end_key = z_end.strip().casefold()
+    excluded_point_keys = {point.strip().casefold() for point in (excluded_points or [])}
+    for point in excluded_points or []:
+        point_key = point.strip().casefold()
+        if not point_key:
+            raise RoutePlanningError("Excluded point names cannot be empty")
+        if point_key not in point_names:
+            raise RoutePlanningError(f"Point '{point}' was not found in the cable spans")
+    if start_key in excluded_point_keys or end_key in excluded_point_keys:
+        raise RoutePlanningError("A-END and Z-END cannot be excluded points")
     if start_key not in point_names:
         raise RoutePlanningError(f"A-END point '{a_end}' was not found in the cable spans")
     if end_key not in point_names:
@@ -175,7 +187,7 @@ def find_shortest_route(
     for span in spans:
         first = span.a_end.strip().casefold()
         second = span.z_end.strip().casefold()
-        if first == second:
+        if first == second or first in excluded_point_keys or second in excluded_point_keys:
             continue
         graph.setdefault(first, []).append((second, span))
         graph.setdefault(second, []).append((first, span))

@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 import yaml
 
 from includes.cli import run
+from includes.kml_parser import RouteCandidate
 
 
 KML_CONTENT = """<?xml version="1.0" encoding="UTF-8"?>
@@ -127,6 +128,47 @@ class ClosestCliTests(unittest.TestCase):
             )
         )
         self.assertEqual(json.loads(stdout.getvalue())[0]["Route"], "Cable A -> Cable B")
+
+    def test_ai_route_uses_ai_selected_dijkstra_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            kml_path, config_path, output_path = self._create_inputs(Path(temporary_directory), 10)
+            planned_route = RouteCandidate(
+                "R001+R002",
+                "Cable A -> Cable B",
+                "Site A",
+                "Site B",
+                2.0,
+                [(0.001, 0.0), (0.009, 0.0), (0.019, 0.0)],
+            )
+            with (
+                patch("includes.cli.configure_logging", return_value=(Mock(), Mock())),
+                patch("includes.cli.select_ai_route", return_value=planned_route) as select_ai_route,
+                redirect_stdout(io.StringIO()),
+            ):
+                exit_code = run(
+                    [
+                        str(kml_path),
+                        "--mode",
+                        "ai-route",
+                        "--a-end",
+                        "Site A",
+                        "--z-end",
+                        "Site B",
+                        "--config",
+                        str(config_path),
+                        "--output",
+                        str(output_path),
+                    ]
+                )
+
+            result = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(result[0]["Route"], "Cable A -> Cable B")
+        self.assertEqual(result[0]["A-END"], "Site A")
+        self.assertEqual(result[0]["Z-END"], "Site B")
+        self.assertEqual(select_ai_route.call_args.kwargs["a_end"], "Site A")
+        self.assertEqual(select_ai_route.call_args.kwargs["z_end"], "Site B")
 
 
 if __name__ == "__main__":

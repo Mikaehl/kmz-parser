@@ -1,6 +1,8 @@
 provider: ollama
 network:
   endpoint_match_km: 0.5
+route_planning:
+  max_dijkstra_tool_calls: 16
 closest:
   geocoder_url: https://nominatim.openstreetmap.org/search
   user_agent: KMZRouteParser/1.0

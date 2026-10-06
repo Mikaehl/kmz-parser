@@ -23,7 +23,12 @@ KML_CONTENT = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 class ClosestCliTests(unittest.TestCase):
-    def _create_inputs(self, directory: Path, max_distance_km: float) -> tuple[Path, Path, Path]:
+    def _create_inputs(
+        self,
+        directory: Path,
+        max_distance_km: float,
+        log_info: int = 0,
+    ) -> tuple[Path, Path, Path]:
         kml_path = directory / "network.kml"
         kml_path.write_text(KML_CONTENT, encoding="utf-8")
         config_path = directory / "config.yaml"
@@ -31,7 +36,11 @@ class ClosestCliTests(unittest.TestCase):
             yaml.safe_dump(
                 {
                     "provider": "ollama",
-                    "application": {"output_directory": "output", "log_directory": "logs"},
+                    "application": {
+                        "output_directory": "output",
+                        "log_directory": "logs",
+                        "log_info": log_info,
+                    },
                     "closest": {"max_distance_km": max_distance_km},
                     "prompts_file": str(Path(__file__).resolve().parents[1] / "prompts.yaml"),
                 }
@@ -84,7 +93,9 @@ class ClosestCliTests(unittest.TestCase):
 
     def test_djk_calculates_shortest_route_without_calling_ai(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            kml_path, config_path, output_path = self._create_inputs(Path(temporary_directory), 10)
+            kml_path, config_path, output_path = self._create_inputs(
+                Path(temporary_directory), 10, log_info=2
+            )
             stdout = io.StringIO()
             logger = Mock()
             data_logger = Mock()
@@ -116,6 +127,18 @@ class ClosestCliTests(unittest.TestCase):
         self.assertEqual(result[0]["A-END"], "Site A")
         self.assertEqual(result[0]["Z-END"], "Site B")
         select_routes.assert_not_called()
+        self.assertTrue(
+            any(
+                call.args[0] == "Dijkstra call: A-END=%r, Z-END=%r, excluded_segments=%s, excluded_points=%s"
+                for call in logger.info.call_args_list
+            )
+        )
+        self.assertTrue(
+            any(
+                call.args[0] == "Dijkstra result: route_id=%s, segments=%s, distance_km=%.3f"
+                for call in logger.info.call_args_list
+            )
+        )
         logger.info.assert_any_call(
             "Mode utilisé : Dijkstra ; modèle IA : non utilisé ; diversité : aucune."
         )
@@ -131,7 +154,9 @@ class ClosestCliTests(unittest.TestCase):
 
     def test_ai_route_uses_ai_selected_dijkstra_result(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            kml_path, config_path, output_path = self._create_inputs(Path(temporary_directory), 10)
+            kml_path, config_path, output_path = self._create_inputs(
+                Path(temporary_directory), 10, log_info=2
+            )
             planned_route = RouteCandidate(
                 "R001+R002",
                 "Cable A -> Cable B",
@@ -140,8 +165,9 @@ class ClosestCliTests(unittest.TestCase):
                 2.0,
                 [(0.001, 0.0), (0.009, 0.0), (0.019, 0.0)],
             )
+            logger = Mock()
             with (
-                patch("includes.cli.configure_logging", return_value=(Mock(), Mock())),
+                patch("includes.cli.configure_logging", return_value=(logger, Mock())),
                 patch("includes.cli.select_ai_route", return_value=planned_route) as select_ai_route,
                 redirect_stdout(io.StringIO()),
             ):
@@ -169,6 +195,7 @@ class ClosestCliTests(unittest.TestCase):
         self.assertEqual(result[0]["Z-END"], "Site B")
         self.assertEqual(select_ai_route.call_args.kwargs["a_end"], "Site A")
         self.assertEqual(select_ai_route.call_args.kwargs["z_end"], "Site B")
+        self.assertIs(select_ai_route.call_args.kwargs["dijkstra_logger"], logger)
 
 
 if __name__ == "__main__":

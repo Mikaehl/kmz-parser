@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 import urllib.error
 import urllib.request
@@ -168,6 +169,7 @@ def select_ai_route(
     max_retries: int = 5,
     retry_delay_seconds: float = 2,
     max_dijkstra_tool_calls: int = 8,
+    dijkstra_logger: logging.Logger | None = None,
     system_prompt: str | None = None,
     request_metadata: dict[str, Any] | None = None,
 ) -> RouteCandidate:
@@ -393,6 +395,7 @@ def select_ai_route(
                         excluded_span_ids=excluded_segments,
                         excluded_points=excluded_points,
                         strict_exclusions=True,
+                        logger=dijkstra_logger,
                     )
                     discovered_routes[route.route_id] = route
                     tool_result = {
@@ -592,6 +595,7 @@ def select_ai_ring_routes(
     max_retries: int = 5,
     retry_delay_seconds: float = 2,
     max_dijkstra_tool_calls: int = 8,
+    dijkstra_logger: logging.Logger | None = None,
     system_prompt: str | None = None,
     request_metadata: dict[str, Any] | None = None,
 ) -> list[list[RouteCandidate]]:
@@ -632,6 +636,7 @@ def select_ai_ring_routes(
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
             max_dijkstra_tool_calls=remaining_tool_calls,
+            dijkstra_logger=dijkstra_logger,
             system_prompt=instructions,
             request_metadata=leg_metadata,
         )

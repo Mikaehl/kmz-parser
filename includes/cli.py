@@ -329,6 +329,7 @@ def run(arguments: list[str] | None = None) -> int:
         log_directory = (base_directory / application["log_directory"]).resolve()
         request_database_path = log_directory / "requests.sqlite3"
         logger, data_logger = configure_logging(log_directory, log_level)
+        dijkstra_logger = logger if application["log_info"] == 2 else None
 
         if mode == "mlist":
             ollama_settings = settings["ollama"]
@@ -520,7 +521,14 @@ def run(arguments: list[str] | None = None) -> int:
             if mode in {"ai-route", "compare", "ring"}:
                 selection_candidates = candidates
             else:
-                selection_candidates = [find_shortest_route(candidates, parsed.a_end, parsed.z_end)]
+                selection_candidates = [
+                    find_shortest_route(
+                        candidates,
+                        parsed.a_end,
+                        parsed.z_end,
+                        logger=dijkstra_logger,
+                    )
+                ]
         elif parsed.mode == "diverse":
             if parsed.span:
                 if parsed.cable or bool(parsed.a_end) != bool(parsed.z_end):
@@ -546,7 +554,12 @@ def run(arguments: list[str] | None = None) -> int:
                 if start_point.strip().casefold() in available_points and end_point.strip().casefold() in available_points:
                     try:
                         selection_candidates = [
-                            find_shortest_route(selection_candidates, start_point, end_point)
+                            find_shortest_route(
+                                selection_candidates,
+                                start_point,
+                                end_point,
+                                logger=dijkstra_logger,
+                            )
                         ]
                     except RoutePlanningError:
                         pass
@@ -564,6 +577,7 @@ def run(arguments: list[str] | None = None) -> int:
                         parsed.a_end,
                         parsed.z_end,
                         excluded_span_id=parsed.cable,
+                        logger=dijkstra_logger,
                     )
                 ]
             elif parsed.a_end or parsed.z_end:
@@ -579,7 +593,12 @@ def run(arguments: list[str] | None = None) -> int:
 
         dijkstra_route = None
         if mode == "compare":
-            dijkstra_route = find_shortest_route(candidates, parsed.a_end, parsed.z_end)
+            dijkstra_route = find_shortest_route(
+                candidates,
+                parsed.a_end,
+                parsed.z_end,
+                logger=dijkstra_logger,
+            )
         if mode == "djk":
             selected = selection_candidates
             system_prompt = ""
@@ -633,6 +652,7 @@ def run(arguments: list[str] | None = None) -> int:
                             max_retries=int(provider_settings.get("max_retries", 5)) if provider == "openrouter" else 0,
                             retry_delay_seconds=float(provider_settings.get("retry_delay_seconds", 2)),
                             max_dijkstra_tool_calls=settings["route_planning"]["max_dijkstra_tool_calls"],
+                            dijkstra_logger=dijkstra_logger,
                             system_prompt=system_prompt,
                             request_metadata=ai_request_metadata,
                         )
@@ -654,6 +674,7 @@ def run(arguments: list[str] | None = None) -> int:
                         max_retries=int(provider_settings.get("max_retries", 5)) if provider == "openrouter" else 0,
                         retry_delay_seconds=float(provider_settings.get("retry_delay_seconds", 2)),
                         max_dijkstra_tool_calls=settings["route_planning"]["max_dijkstra_tool_calls"],
+                        dijkstra_logger=dijkstra_logger,
                         system_prompt=system_prompt,
                         request_metadata=ai_request_metadata,
                     )

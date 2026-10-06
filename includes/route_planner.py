@@ -1,4 +1,5 @@
 import heapq
+import logging
 
 from includes.kml_parser import RouteCandidate
 
@@ -131,7 +132,16 @@ def find_shortest_route(
     excluded_span_ids: list[str] | None = None,
     excluded_points: list[str] | None = None,
     strict_exclusions: bool = False,
+    logger: logging.Logger | None = None,
 ) -> RouteCandidate:
+    if logger is not None:
+        logger.info(
+            "Dijkstra call: A-END=%r, Z-END=%r, excluded_segments=%s, excluded_points=%s",
+            a_end,
+            z_end,
+            excluded_span_ids or ([excluded_span_id] if excluded_span_id else []),
+            excluded_points or [],
+        )
     all_spans = spans
     exclusion_keys = list(excluded_span_ids or [])
     if excluded_span_id is not None:
@@ -228,7 +238,7 @@ def find_shortest_route(
         route_segments.append(points)
         route_spans.append(span)
 
-    return RouteCandidate(
+    route = RouteCandidate(
         route_id="+".join(span.route_id for span in route_spans),
         route_name=" -> ".join(span.route_name for span in route_spans),
         a_end=point_names[start_key],
@@ -240,6 +250,14 @@ def find_shortest_route(
         span_ids=[span.source_id or span.route_id for span in route_spans],
         span_names=[span.route_name for span in route_spans],
     )
+    if logger is not None:
+        logger.info(
+            "Dijkstra result: route_id=%s, segments=%s, distance_km=%.3f",
+            route.route_id,
+            route.span_ids,
+            route.distance_km,
+        )
+    return route
 
 
 def build_route_from_spans(

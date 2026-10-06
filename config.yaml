@@ -28,4 +28,5 @@ application:
   output_directory: output
   log_directory: logs
   log_level: INFO
+  log_info: 2
 prompts_file: prompts.yaml

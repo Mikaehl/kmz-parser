@@ -39,6 +39,7 @@ DEFAULT_CONFIG = {
         "output_directory": "output",
         "log_directory": "logs",
         "log_level": "INFO",
+        "log_info": 0,
     },
     "prompts_file": "prompts.yaml",
 }
@@ -68,6 +69,9 @@ def load_settings(config_path: Path) -> tuple[dict[str, Any], Path]:
     application = settings["application"]
     if application["locale"] not in {"fr", "en"}:
         raise ValueError("application.locale must be 'fr' or 'en'")
+    log_info = application["log_info"]
+    if isinstance(log_info, bool) or not isinstance(log_info, int) or log_info < 0:
+        raise ValueError("application.log_info must be a non-negative integer")
     endpoint_match_km = float(settings["network"]["endpoint_match_km"])
     if not math.isfinite(endpoint_match_km) or endpoint_match_km < 0:
         raise ValueError("network.endpoint_match_km must be a finite non-negative number")

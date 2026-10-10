@@ -20,6 +20,95 @@ class ProviderConfigurationError(ValueError):
     pass
 
 
+class AiSelectionError(ValueError):
+    """The provider answered, but the answer cannot be used as a route selection."""
+
+    def __init__(self, message: str, detail: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.detail = detail or {}
+
+    def explanation(self) -> str:
+        """Human readable diagnostics: what the AI returned and why it was rejected."""
+        lines: list[str] = []
+        reason = self.detail.get("reason")
+        if reason:
+            lines.append(f"Reason: {reason}")
+        response = self.detail.get("response")
+        if response is not None:
+            lines.append(f"AI returned: {_response_preview(response)}")
+        tool_arguments = self.detail.get("tool_arguments")
+        if tool_arguments is not None:
+            lines.append(f"Tool call arguments: {_compact_text(tool_arguments)}")
+        references = self.detail.get("valid_route_references") or []
+        lines.append(f"Valid route references: {_reference_preview(sorted(references))}")
+        tool_errors = self.detail.get("tool_errors") or []
+        if tool_errors:
+            lines.append(
+                "Dijkstra tool failures: "
+                + "; ".join(_compact_text(error) for error in tool_errors)
+            )
+        return "\n".join(lines)
+
+
+def _compact_text(value: Any) -> str:
+    return " ".join(str(value).split())
+
+
+def _response_preview(content: Any, limit: int = 400) -> str:
+    if content is None:
+        return "<empty>"
+    compact = _compact_text(content)
+    if not compact:
+        return "<empty>"
+    if len(compact) > limit:
+        return f"{compact[:limit]}... [{len(compact)} characters total]"
+    return compact
+
+
+def _reference_preview(references: list[str], limit: int = 10) -> str:
+    if not references:
+        return "none (the AI never received a successful Dijkstra route)"
+    shown = references[:limit]
+    suffix = f"... [{len(references)} references total]" if len(references) > limit else ""
+    return ", ".join(shown) + suffix
+
+
+def _record_rejected_response(
+    request_metadata: dict[str, Any] | None,
+    logger: logging.Logger | None,
+    data_logger: logging.Logger | None,
+    reason: str,
+    content: Any,
+    discovered_routes: dict[str, Any] | None = None,
+) -> None:
+    """Persist the offending provider payload so it can be inspected in logs and history."""
+    if request_metadata is not None:
+        request_metadata["ai_response"] = content if isinstance(content, str) else str(content)
+        request_metadata["ai_response_reason"] = reason
+    if logger is not None:
+        logger.error(
+            "Rejected AI response (%s): %s",
+            reason,
+            _response_preview(content),
+        )
+        if discovered_routes:
+            logger.error(
+                "Valid route references for this request: %s",
+                _reference_preview(sorted(discovered_routes)),
+            )
+    if data_logger is not None:
+        data_logger.info(
+            "Rejected AI response",
+            extra={
+                "data": {
+                    "reason": reason,
+                    "response": content,
+                    "valid_route_references": sorted(discovered_routes or {}),
+                }
+            },
+        )
+
+
 def _describe_http_error(error: urllib.error.HTTPError) -> str:
     description = f"HTTP {error.code} {error.reason}"
     try:
@@ -170,6 +259,8 @@ def select_ai_route(
     retry_delay_seconds: float = 2,
     max_dijkstra_tool_calls: int = 8,
     dijkstra_logger: logging.Logger | None = None,
+    logger: logging.Logger | None = None,
+    data_logger: logging.Logger | None = None,
     system_prompt: str | None = None,
     request_metadata: dict[str, Any] | None = None,
 ) -> RouteCandidate:
@@ -253,6 +344,7 @@ def select_ai_route(
         raise ValueError(f"Unsupported provider: {provider}")
 
     discovered_routes: dict[str, RouteCandidate] = {}
+    tool_errors: list[str] = []
     prompt_tokens_total = 0
     completion_tokens_total = 0
     prompt_tokens_known = True
@@ -350,9 +442,31 @@ def select_ai_route(
                 if not isinstance(function, dict) or function.get("name") != "find_dijkstra_route":
                     raise ValueError("AI provider requested an unsupported tool")
                 if tool_call_count >= max_dijkstra_tool_calls:
-                    raise ValueError(
+                    detail = {
+                        "reason": "tool_call_limit",
+                        "tool_calls_attempted": tool_call_count + 1,
+                        "max_dijkstra_tool_calls": max_dijkstra_tool_calls,
+                        "valid_route_references": sorted(discovered_routes),
+                        "tool_arguments": function.get("arguments", {}),
+                        "tool_errors": tool_errors,
+                    }
+                    if request_metadata is not None:
+                        request_metadata["ai_response_reason"] = "tool_call_limit"
+                    if logger is not None:
+                        logger.error(
+                            "Rejected AI response (tool_call_limit): the AI requested a "
+                            "Dijkstra tool call beyond the configured limit of %s "
+                            "(call arguments: %s). Valid route references: %s",
+                            max_dijkstra_tool_calls,
+                            _compact_text(function.get("arguments", {})),
+                            _reference_preview(sorted(discovered_routes)),
+                        )
+                    if data_logger is not None:
+                        data_logger.info("Rejected AI response", extra={"data": detail})
+                    raise AiSelectionError(
                         "AI exceeded the maximum of "
-                        f"{max_dijkstra_tool_calls} Dijkstra tool calls"
+                        f"{max_dijkstra_tool_calls} Dijkstra tool calls",
+                        detail,
                     )
                 tool_call_count += 1
                 if request_metadata is not None:
@@ -410,6 +524,7 @@ def select_ai_route(
                     }
                 except RoutePlanningError as error:
                     tool_result = {"error": str(error)}
+                    tool_errors.append(str(error))
                 if provider == "ollama":
                     messages.append(
                         {
@@ -433,16 +548,75 @@ def select_ai_route(
 
         content = assistant_message.get("content")
         if not isinstance(content, str):
-            raise ValueError("AI response did not select a Dijkstra route reference")
+            _record_rejected_response(
+                request_metadata, logger, data_logger, "missing_content", content, discovered_routes
+            )
+            raise AiSelectionError(
+                "AI response did not select a Dijkstra route reference",
+                {
+                    "reason": "missing_content",
+                    "response": content,
+                    "valid_route_references": sorted(discovered_routes),
+                    "tool_errors": tool_errors,
+                },
+            )
         try:
             selection = json.loads(content)
         except json.JSONDecodeError as error:
-            raise ValueError("AI returned an invalid route reference") from error
+            _record_rejected_response(
+                request_metadata, logger, data_logger, "not_json", content, discovered_routes
+            )
+            raise AiSelectionError(
+                f"AI returned an invalid route reference: the response is not valid JSON "
+                f"({error.msg} at line {error.lineno} column {error.colno}). "
+                f"AI response: {_response_preview(content)}",
+                {
+                    "reason": "not_json",
+                    "response": content,
+                    "json_error": f"{error.msg} at line {error.lineno} column {error.colno}",
+                    "valid_route_references": sorted(discovered_routes),
+                    "tool_errors": tool_errors,
+                },
+            ) from error
         route_reference = (
             selection.get("route_reference") if isinstance(selection, dict) else None
         )
         if not isinstance(route_reference, str) or route_reference not in discovered_routes:
-            raise ValueError("AI selected an unknown or uncalculated route reference")
+            if isinstance(selection, dict):
+                if "route_reference" not in selection:
+                    reason = "missing_route_reference"
+                    detail = (
+                        "the JSON object has no 'route_reference' key "
+                        f"(keys found: {', '.join(sorted(map(str, selection))) or 'none'})"
+                    )
+                elif not isinstance(route_reference, str):
+                    reason = "invalid_route_reference_type"
+                    detail = (
+                        f"'route_reference' is not a string but {type(route_reference).__name__}: "
+                        f"{_response_preview(route_reference)}"
+                    )
+                else:
+                    reason = "unknown_route_reference"
+                    detail = (
+                        f"'{route_reference}' was not returned by any successful Dijkstra call"
+                    )
+            else:
+                reason = "unexpected_json_type"
+                detail = f"the AI returned {type(selection).__name__} instead of a JSON object"
+            _record_rejected_response(
+                request_metadata, logger, data_logger, reason, content, discovered_routes
+            )
+            raise AiSelectionError(
+                f"AI selected an unknown or uncalculated route reference: {detail}. "
+                f"Valid route references: {_reference_preview(sorted(discovered_routes))}",
+                {
+                    "reason": reason,
+                    "response": content,
+                    "route_reference": route_reference,
+                    "valid_route_references": sorted(discovered_routes),
+                    "tool_errors": tool_errors,
+                },
+            )
         return discovered_routes[route_reference]
 
 
@@ -596,6 +770,8 @@ def select_ai_ring_routes(
     retry_delay_seconds: float = 2,
     max_dijkstra_tool_calls: int = 8,
     dijkstra_logger: logging.Logger | None = None,
+    logger: logging.Logger | None = None,
+    data_logger: logging.Logger | None = None,
     system_prompt: str | None = None,
     request_metadata: dict[str, Any] | None = None,
 ) -> list[list[RouteCandidate]]:
@@ -612,34 +788,71 @@ def select_ai_ring_routes(
     completion_tokens_known = True
     dijkstra_tool_calls = 0
 
+    def merge_leg_metadata(leg: dict[str, Any], tool_calls: int) -> None:
+        """Keep the leg diagnostics even when the leg failed before returning."""
+        if request_metadata is None:
+            return
+        request_metadata.update(leg)
+        request_metadata["dijkstra_tool_calls"] = tool_calls
+        request_metadata["prompt_tokens"] = prompt_tokens_total if prompt_tokens_known else None
+        request_metadata["completion_tokens"] = (
+            completion_tokens_total if completion_tokens_known else None
+        )
+        request_metadata["total_tokens"] = (
+            prompt_tokens_total + completion_tokens_total
+            if prompt_tokens_known and completion_tokens_known
+            else None
+        )
+
     for route_index in range(2):
         remaining_tool_calls = max_dijkstra_tool_calls - dijkstra_tool_calls
         if remaining_tool_calls < 1:
-            raise ValueError(
+            detail = {
+                "reason": "tool_call_limit",
+                "max_dijkstra_tool_calls": max_dijkstra_tool_calls,
+                "tool_calls_attempted": dijkstra_tool_calls,
+            }
+            merge_leg_metadata({}, dijkstra_tool_calls)
+            if logger is not None:
+                logger.error(
+                    "Rejected AI response (tool_call_limit): the ring route selection "
+                    "already used all %s Dijkstra tool calls.",
+                    max_dijkstra_tool_calls,
+                )
+            if data_logger is not None:
+                data_logger.info("Rejected AI response", extra={"data": detail})
+            raise AiSelectionError(
                 "AI exceeded the maximum of "
-                f"{max_dijkstra_tool_calls} Dijkstra tool calls"
+                f"{max_dijkstra_tool_calls} Dijkstra tool calls",
+                detail,
             )
         leg_metadata: dict[str, Any] = {}
-        selected_route = select_ai_route(
-            provider=provider,
-            base_url=base_url,
-            model=model,
-            timeout_seconds=timeout_seconds,
-            locale=locale,
-            prompt_config=prompt_config,
-            candidates=route_candidates,
-            a_end=a_end,
-            z_end=z_end,
-            api_key=api_key,
-            site_url=site_url,
-            app_name=app_name,
-            max_retries=max_retries,
-            retry_delay_seconds=retry_delay_seconds,
-            max_dijkstra_tool_calls=remaining_tool_calls,
-            dijkstra_logger=dijkstra_logger,
-            system_prompt=instructions,
-            request_metadata=leg_metadata,
-        )
+        try:
+            selected_route = select_ai_route(
+                provider=provider,
+                base_url=base_url,
+                model=model,
+                timeout_seconds=timeout_seconds,
+                locale=locale,
+                prompt_config=prompt_config,
+                candidates=route_candidates,
+                a_end=a_end,
+                z_end=z_end,
+                api_key=api_key,
+                site_url=site_url,
+                app_name=app_name,
+                max_retries=max_retries,
+                retry_delay_seconds=retry_delay_seconds,
+                max_dijkstra_tool_calls=remaining_tool_calls,
+                dijkstra_logger=dijkstra_logger,
+                logger=logger,
+                data_logger=data_logger,
+                system_prompt=instructions,
+                request_metadata=leg_metadata,
+            )
+        except Exception:
+            merge_leg_metadata(leg_metadata, dijkstra_tool_calls + int(leg_metadata.get("dijkstra_tool_calls", 0)))
+            raise
         selected_routes.append(selected_route)
         dijkstra_tool_calls += int(leg_metadata.get("dijkstra_tool_calls", 0))
 
@@ -665,20 +878,7 @@ def select_ai_ring_routes(
                     "No cable spans remain for a non-crossing second ring route"
                 )
 
-        if request_metadata is not None:
-            request_metadata.update(leg_metadata)
-            request_metadata["dijkstra_tool_calls"] = dijkstra_tool_calls
-            request_metadata["prompt_tokens"] = (
-                prompt_tokens_total if prompt_tokens_known else None
-            )
-            request_metadata["completion_tokens"] = (
-                completion_tokens_total if completion_tokens_known else None
-            )
-            request_metadata["total_tokens"] = (
-                prompt_tokens_total + completion_tokens_total
-                if prompt_tokens_known and completion_tokens_known
-                else None
-            )
+        merge_leg_metadata(leg_metadata, dijkstra_tool_calls)
 
     candidate_by_id = {
         (candidate.source_id or candidate.route_id).strip().casefold(): candidate

@@ -45,6 +45,8 @@ The system prompt used for the request is printed immediately above the compact,
 
 Prompts are configured in `prompts.yaml`. Translated CLI and log messages are in `locales/fr.yaml` and `locales/en.yaml`. The application writes `info.log`, structured `data.log`, and `error.log` under the configured log directory. It also records each parsed CLI request in `logs/requests.sqlite3` (inside the configured log directory), including its result or error, exact AI messages when applicable, elapsed time, provider/model, available token counts, diversity span or cable ID, and generated KMZ path.
 
+When an AI response cannot be used as a route selection (non-JSON content, a missing `route_reference`, a non-string reference, or a reference that no Dijkstra call returned), the offending provider payload and the rejection reason are stored in the `ai_response` and `ai_response_reason` columns of the `requests` table, logged as `Rejected AI response (<reason>)` in `info.log`/`error.log`, emitted as a structured record in `data.log`, and printed on the command line with the response preview, the list of valid route references, and any Dijkstra tool failures. Existing databases are upgraded automatically.
+
 ## Tests
 
 ```powershell

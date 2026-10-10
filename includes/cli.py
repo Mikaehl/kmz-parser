@@ -22,6 +22,7 @@ from includes.kml_parser import (
 )
 from includes.logging_setup import configure_logging
 from includes.ollama_client import (
+    AiSelectionError,
     ProviderConfigurationError,
     build_ai_ring_system_prompt,
     build_ai_route_system_prompt,
@@ -653,6 +654,8 @@ def run(arguments: list[str] | None = None) -> int:
                             retry_delay_seconds=float(provider_settings.get("retry_delay_seconds", 2)),
                             max_dijkstra_tool_calls=settings["route_planning"]["max_dijkstra_tool_calls"],
                             dijkstra_logger=dijkstra_logger,
+                            logger=logger,
+                            data_logger=data_logger,
                             system_prompt=system_prompt,
                             request_metadata=ai_request_metadata,
                         )
@@ -675,6 +678,8 @@ def run(arguments: list[str] | None = None) -> int:
                         retry_delay_seconds=float(provider_settings.get("retry_delay_seconds", 2)),
                         max_dijkstra_tool_calls=settings["route_planning"]["max_dijkstra_tool_calls"],
                         dijkstra_logger=dijkstra_logger,
+                        logger=logger,
+                        data_logger=data_logger,
                         system_prompt=system_prompt,
                         request_metadata=ai_request_metadata,
                     )
@@ -836,6 +841,19 @@ def run(arguments: list[str] | None = None) -> int:
         else:
             logging.error(str(error))
         return 2
+    except AiSelectionError as error:
+        message = _format_message(locale, "error_ai_selection", error=error)
+        request_record["error"] = message
+        request_record["ai_response"] = error.detail.get("response")
+        request_record["ai_response_reason"] = error.detail.get("reason")
+        explanation = error.explanation()
+        if "logger" in locals():
+            logger.error(message)
+            logger.error("%s", explanation)
+        else:
+            logging.error(message)
+            logging.error(explanation)
+        return 1
     except (OSError, ValueError, KeyError, RuntimeError, json.JSONDecodeError) as error:
         message = _format_message(locale, "error_api", error=error) if isinstance(error, RuntimeError) else _format_message(locale, "error_config", error=error)
         request_record["error"] = message

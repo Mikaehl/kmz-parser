@@ -11,6 +11,7 @@ from includes.cli import _build_parser, _display_prompt_and_results, _load_api_k
 from includes.configuration import load_locale
 from includes.kml_parser import RouteCandidate
 from includes.ollama_client import (
+    AiSelectionError,
     check_kml_consistency,
     list_ollama_models,
     select_routes,
@@ -206,6 +207,169 @@ class OllamaClientTests(unittest.TestCase):
             )
 
         mock_urlopen.assert_called_once()
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_ai_route_rejects_prose_response_with_diagnostics(self, mock_urlopen: object) -> None:
+        mock_urlopen.return_value = io.BytesIO(
+            json.dumps(
+                {
+                    "message": {
+                        "content": "I could not find a route because every cable was excluded."
+                    }
+                }
+            ).encode("utf-8")
+        )
+        request_metadata: dict[str, object] = {}
+
+        with self.assertRaises(AiSelectionError) as raised:
+            select_ai_route(
+                provider="ollama",
+                base_url="http://localhost:11434",
+                model="llama3.1",
+                timeout_seconds=10,
+                locale="fr",
+                prompt_config={
+                    "common": {"fr": "Réseau"},
+                    "ai-route": {"fr": "Choisis une route"},
+                },
+                candidates=self.candidates,
+                a_end="A",
+                z_end="B",
+                request_metadata=request_metadata,
+            )
+
+        error = raised.exception
+        self.assertIn("not valid JSON", str(error))
+        self.assertIn("I could not find a route", str(error))
+        self.assertEqual(error.detail["reason"], "not_json")
+        self.assertEqual(
+            error.detail["response"],
+            "I could not find a route because every cable was excluded.",
+        )
+        self.assertEqual(error.detail["valid_route_references"], [])
+        self.assertEqual(request_metadata["ai_response_reason"], "not_json")
+        self.assertIn("every cable", request_metadata["ai_response"])
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_ai_route_reports_unknown_route_reference(self, mock_urlopen: object) -> None:
+        mock_urlopen.return_value = io.BytesIO(
+            json.dumps(
+                {"message": {"content": json.dumps({"route_reference": "R999"})}}
+            ).encode("utf-8")
+        )
+        request_metadata: dict[str, object] = {}
+
+        with self.assertRaises(AiSelectionError) as raised:
+            select_ai_route(
+                provider="ollama",
+                base_url="http://localhost:11434",
+                model="llama3.1",
+                timeout_seconds=10,
+                locale="fr",
+                prompt_config={
+                    "common": {"fr": "Réseau"},
+                    "ai-route": {"fr": "Choisis une route"},
+                },
+                candidates=self.candidates,
+                a_end="A",
+                z_end="B",
+                request_metadata=request_metadata,
+            )
+
+        error = raised.exception
+        self.assertEqual(error.detail["reason"], "unknown_route_reference")
+        self.assertEqual(error.detail["route_reference"], "R999")
+        self.assertIn("Valid route references:", str(error))
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_ai_route_reports_missing_route_reference_key(self, mock_urlopen: object) -> None:
+        mock_urlopen.return_value = io.BytesIO(
+            json.dumps({"message": {"content": json.dumps({"route": "R001"})}}).encode("utf-8")
+        )
+
+        with self.assertRaises(AiSelectionError) as raised:
+            select_ai_route(
+                provider="ollama",
+                base_url="http://localhost:11434",
+                model="llama3.1",
+                timeout_seconds=10,
+                locale="fr",
+                prompt_config={
+                    "common": {"fr": "Réseau"},
+                    "ai-route": {"fr": "Choisis une route"},
+                },
+                candidates=self.candidates,
+                a_end="A",
+                z_end="B",
+            )
+
+        self.assertEqual(raised.exception.detail["reason"], "missing_route_reference")
+        self.assertIn("keys found: route", str(raised.exception))
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_tool_call_limit_reports_arguments_and_valid_references(self, mock_urlopen: object) -> None:
+        tool_response = {
+            "message": {
+                "tool_calls": [
+                    {"function": {"name": "find_dijkstra_route", "arguments": {}}},
+                    {"function": {"name": "find_dijkstra_route", "arguments": {"exclude_points": ["A"]}}},
+                ]
+            }
+        }
+        mock_urlopen.return_value = io.BytesIO(json.dumps(tool_response).encode("utf-8"))
+
+        with self.assertRaises(AiSelectionError) as raised:
+            select_ai_route(
+                provider="ollama",
+                base_url="http://localhost:11434",
+                model="llama3.1",
+                timeout_seconds=10,
+                locale="fr",
+                prompt_config={
+                    "common": {"fr": "Réseau"},
+                    "ai-route": {"fr": "Choisis une route"},
+                },
+                candidates=self.candidates,
+                a_end="A",
+                z_end="B",
+                max_dijkstra_tool_calls=1,
+            )
+
+        self.assertEqual(raised.exception.detail["reason"], "tool_call_limit")
+        self.assertEqual(raised.exception.detail["tool_arguments"], {"exclude_points": ["A"]})
+        self.assertIn("Tool call arguments", raised.exception.explanation())
+
+    @patch("includes.ollama_client.urllib.request.urlopen")
+    def test_rejected_response_is_logged(self, mock_urlopen: object) -> None:
+        import logging
+
+        mock_urlopen.return_value = io.BytesIO(
+            json.dumps({"message": {"content": "not a json payload"}}).encode("utf-8")
+        )
+        logger = logging.getLogger("test_rejected_response")
+        records: list[logging.LogRecord] = []
+        logger.addHandler(logging.Handler())
+        logger.handlers[0].handle = lambda record: records.append(record.getMessage())
+        logger.setLevel(logging.ERROR)
+
+        with self.assertRaises(AiSelectionError):
+            select_ai_route(
+                provider="ollama",
+                base_url="http://localhost:11434",
+                model="llama3.1",
+                timeout_seconds=10,
+                locale="fr",
+                prompt_config={
+                    "common": {"fr": "Réseau"},
+                    "ai-route": {"fr": "Choisis une route"},
+                },
+                candidates=self.candidates,
+                a_end="A",
+                z_end="B",
+                logger=logger,
+            )
+
+        self.assertTrue(any("Rejected AI response (not_json)" in message for message in records))
 
     @patch("includes.ollama_client.urllib.request.urlopen")
     def test_ai_route_supports_openrouter_tool_calls(self, mock_urlopen: object) -> None:

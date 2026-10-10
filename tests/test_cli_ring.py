@@ -1,5 +1,6 @@
 import io
 import json
+import sqlite3
 import tempfile
 import unittest
 import zipfile
@@ -145,6 +146,65 @@ class RingCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 2)
         self.assertFalse((root / "output" / "network_ring.json").exists())
         select_ring.assert_called_once()
+        find_shortest_route.assert_not_called()
+
+    def test_ai_selection_error_reports_the_offending_response_on_the_command_line(self) -> None:
+        from includes.ollama_client import AiSelectionError
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary_directory:
+            root = Path(temporary_directory)
+            input_path, config_path = self._prepare_project(root)
+            logger = Mock()
+            stdout = io.StringIO()
+            with (
+                patch("includes.cli.configure_logging", return_value=(logger, Mock())),
+                patch(
+                    "includes.cli.select_ai_ring_routes",
+                    side_effect=AiSelectionError(
+                        "AI returned an invalid route reference: the response is not valid JSON",
+                        {
+                            "reason": "not_json",
+                            "response": "I cannot choose a route.",
+                            "valid_route_references": ["R001+R002"],
+                        },
+                    ),
+                ),
+                patch("includes.cli.find_shortest_route") as find_shortest_route,
+                redirect_stdout(stdout),
+            ):
+                exit_code = run(
+                    [
+                        str(input_path),
+                        "--mode",
+                        "ring",
+                        "--a-end",
+                        "Site A",
+                        "--z-end",
+                        "Site B",
+                        "--config",
+                        str(config_path),
+                    ]
+                )
+
+            output = stdout.getvalue()
+            logged = [
+                " ".join(str(argument) for argument in call.args)
+                for call in logger.error.call_args_list
+            ]
+            database_path = root / "logs" / "requests.sqlite3"
+            with sqlite3.connect(database_path) as connection:
+                connection.row_factory = sqlite3.Row
+                row = connection.execute(
+                    "SELECT status, error, ai_response, ai_response_reason FROM requests ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+
+        self.assertEqual(exit_code, 1)
+        self.assertTrue(any("Sélection IA invalide" in message for message in logged))
+        self.assertTrue(any("AI returned: I cannot choose a route." in message for message in logged))
+        self.assertTrue(any("Valid route references: R001+R002" in message for message in logged))
+        self.assertEqual(row["status"], "error")
+        self.assertEqual(row["ai_response"], "I cannot choose a route.")
+        self.assertEqual(row["ai_response_reason"], "not_json")
         find_shortest_route.assert_not_called()
 
 

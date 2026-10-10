@@ -77,4 +77,5 @@ error_compare_mismatch: "Comparaison échouée : l'IA a calculé « {ai_route} �
 error_api: "Échec de la requête API: {error}"
 error_api_key_missing: "Fichier de clé OpenRouter absent, inaccessible ou vide: {path}"
 error_invalid_response: "Ollama a retourné une sélection de routes invalide."
+error_ai_selection: "Sélection IA invalide: {error}"
 error_config: "Configuration invalide: {error}"

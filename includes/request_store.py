@@ -30,6 +30,8 @@ def record_request(database_path: Path, request: dict[str, Any]) -> None:
                 kmz_path TEXT,
                 inconsistency_count INTEGER,
                 potential_solution_count INTEGER,
+                ai_response TEXT,
+                ai_response_reason TEXT,
                 error TEXT
             )
             """
@@ -37,9 +39,14 @@ def record_request(database_path: Path, request: dict[str, Any]) -> None:
         existing_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(requests)")
         }
-        for column in ("inconsistency_count", "potential_solution_count"):
+        for column, column_type in (
+            ("inconsistency_count", "INTEGER"),
+            ("potential_solution_count", "INTEGER"),
+            ("ai_response", "TEXT"),
+            ("ai_response_reason", "TEXT"),
+        ):
             if column not in existing_columns:
-                connection.execute(f"ALTER TABLE requests ADD COLUMN {column} INTEGER")
+                connection.execute(f"ALTER TABLE requests ADD COLUMN {column} {column_type}")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS check_anomalies (
@@ -64,8 +71,9 @@ def record_request(database_path: Path, request: dict[str, Any]) -> None:
                 created_at, mode, status, result_json, prompt, duration_ms,
                 provider_duration_ms, provider, model, prompt_tokens,
                 completion_tokens, total_tokens, diversity_span_id, kmz_path,
-                inconsistency_count, potential_solution_count, error
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                inconsistency_count, potential_solution_count,
+                ai_response, ai_response_reason, error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 datetime.now(timezone.utc).isoformat(),
@@ -84,6 +92,8 @@ def record_request(database_path: Path, request: dict[str, Any]) -> None:
                 request.get("kmz_path"),
                 request.get("inconsistency_count"),
                 request.get("potential_solution_count"),
+                request.get("ai_response"),
+                request.get("ai_response_reason"),
                 request.get("error"),
             ),
         )
